@@ -24,18 +24,18 @@
     // ============================================================================
 
     const CONFIG_KEY = 'groomarr_config';
-    const VERSION = '1.0.0';
+    const VERSION = '1.1.0';
 
     const DEFAULT_CONFIG = {
         // Groomarr API settings
         groomarrUrl: 'http://localhost:8000',
-        renameMode: 'torrent_folder_files',
+        renameMode: 'torrent_and_folder',
 
         // Rename rule toggles
-        addUkrTag: false,
-        addReleaseGroup: true,
-        fixTvYear: true,
-        fixBdLabels: true,
+        addLanguageTags: true,        // Add parsed audio/subtitle languages after resolution
+        addReleaseGroup: true,        // Add uploader as group if missing
+        fixTvYear: true,              // Replace wrong year with original air date
+        fixBdLabels: true,            // BDRemux → BluRay REMUX, etc.
 
         // UI options
         showNotifications: true,
@@ -117,7 +117,7 @@
         .groomarr-panel {
             background: #1a1a2e;
             border-radius: 16px;
-            width: 500px;
+            width: 550px;
             max-width: 90vw;
             max-height: 90vh;
             overflow-y: auto;
@@ -217,6 +217,11 @@
         .groomarr-info-value.hash {
             color: #fbbf24;
             font-size: 12px;
+        }
+
+        .groomarr-info-value.small {
+            font-size: 11px;
+            color: #9ca3af;
         }
 
         /* Input fields */
@@ -488,6 +493,7 @@
 
         .groomarr-diff-line {
             padding: 2px 0;
+            word-break: break-all;
         }
 
         .groomarr-diff-old {
@@ -552,6 +558,31 @@
             background: #7f1d1d;
             color: #f87171;
         }
+
+        /* Tags display */
+        .groomarr-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .groomarr-tag {
+            background: #2d3748;
+            color: #e0e0e0;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+
+        .groomarr-tag.audio {
+            border-left: 3px solid #60a5fa;
+        }
+
+        .groomarr-tag.subs {
+            border-left: 3px solid #fbbf24;
+        }
     `);
 
     // ============================================================================
@@ -574,6 +605,128 @@
     // DATA EXTRACTION
     // ============================================================================
 
+    /**
+     * Extract audio languages from mediainfo__audio section
+     * Returns array of unique language names
+     */
+    function extractAudioLanguages() {
+        const languages = new Set();
+
+        // Find the audio section
+        const audioSection = document.querySelector('section.mediainfo__audio');
+        if (!audioSection) {
+            return [];
+        }
+
+        // Get all dd elements (contain language info)
+        // Or check img alt attributes which contain language names
+        const imgs = audioSection.querySelectorAll('dd img[alt]');
+        imgs.forEach(img => {
+            const lang = img.getAttribute('alt');
+            if (lang) {
+                languages.add(lang);
+            }
+        });
+
+        // Fallback: parse from title attributes
+        if (languages.size === 0) {
+            const titledElements = audioSection.querySelectorAll('[title]');
+            titledElements.forEach(el => {
+                const title = el.getAttribute('title');
+                if (title) {
+                    languages.add(title);
+                }
+            });
+        }
+
+        return Array.from(languages);
+    }
+
+    /**
+     * Extract subtitle languages from mediainfo__subtitles section
+     * Returns array of unique language names
+     */
+    function extractSubtitleLanguages() {
+        const languages = new Set();
+
+        // Find the subtitles section
+        const subsSection = document.querySelector('section.mediainfo__subtitles');
+        if (!subsSection) {
+            return [];
+        }
+
+        // Get all img elements with alt attributes
+        const imgs = subsSection.querySelectorAll('li img[alt]');
+        imgs.forEach(img => {
+            const lang = img.getAttribute('alt');
+            if (lang) {
+                languages.add(lang);
+            }
+        });
+
+        // Fallback: parse from title attributes
+        if (languages.size === 0) {
+            const titledElements = subsSection.querySelectorAll('[title]');
+            titledElements.forEach(el => {
+                const title = el.getAttribute('title');
+                if (title) {
+                    languages.add(title);
+                }
+            });
+        }
+
+        return Array.from(languages);
+    }
+
+    /**
+     * Extract original year from the localized title header
+     * e.g., "Сімпсони (1989)" -> 1989
+     */
+    function extractOriginalYear() {
+        // Try XPath first
+        const yearElement = document.evaluate(
+            '/html/body/main/article/section[1]/a[1]/h1',
+            document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+        ).singleNodeValue;
+
+        if (yearElement) {
+            const text = yearElement.textContent || '';
+            const match = text.match(/\((\d{4})\)/);
+            if (match) {
+                return parseInt(match[1], 10);
+            }
+        }
+
+        // Fallback: look for any h1 with year pattern in article section
+        const h1Elements = document.querySelectorAll('main article section h1, main article header h1');
+        for (const h1 of h1Elements) {
+            const text = h1.textContent || '';
+            const match = text.match(/\((\d{4})\)/);
+            if (match) {
+                return parseInt(match[1], 10);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract year from release name if present
+     * e.g., "The Simpsons S35 2025 1080p" -> 2025
+     */
+    function extractYearFromReleaseName(releaseName) {
+        // Look for 4-digit year (1900-2099) that's not part of resolution
+        // Exclude patterns like 1080p, 2160p, etc.
+        const yearMatch = releaseName.match(/\b(19\d{2}|20\d{2})\b(?!p|i)/);
+        if (yearMatch) {
+            return parseInt(yearMatch[1], 10);
+        }
+        return null;
+    }
+
+    /**
+     * Main extraction function - gets all torrent data from page
+     */
     function extractTorrentData() {
         const data = {
             hash: '',
@@ -581,6 +734,10 @@
             releaseGroup: '',
             mediaType: '',
             isTV: false,
+            originalYear: null,
+            releaseYear: null,
+            audioLanguages: [],
+            subtitleLanguages: [],
             error: null
         };
 
@@ -618,9 +775,9 @@
                 data.releaseName = titleElement.textContent.trim();
             }
 
-            // Fallback: try main h1
+            // Fallback: try main h1 (but not the localized one with year)
             if (!data.releaseName) {
-                const h1 = document.querySelector('main article h1, main h1, article h1');
+                const h1 = document.querySelector('main article > h1');
                 if (h1) {
                     data.releaseName = h1.textContent.trim();
                 }
@@ -647,6 +804,18 @@
                 data.isTV = data.mediaType.toLowerCase() === 'tv';
             }
 
+            // Extract original year from localized title
+            data.originalYear = extractOriginalYear();
+
+            // Extract year from release name
+            if (data.releaseName) {
+                data.releaseYear = extractYearFromReleaseName(data.releaseName);
+            }
+
+            // Extract audio and subtitle languages from mediainfo
+            data.audioLanguages = extractAudioLanguages();
+            data.subtitleLanguages = extractSubtitleLanguages();
+
             // Validation
             if (!data.hash) {
                 data.error = 'Could not extract torrent hash from page';
@@ -670,8 +839,9 @@
      * Patterns: ends with -GroupName or [GroupName]
      */
     function hasReleaseGroup(title) {
-        // Check for -GroupName at end (with optional file extension removed)
+        // Remove common file extensions first
         const withoutExt = title.replace(/\.(mkv|mp4|avi|mov|wmv|flv|webm)$/i, '');
+        // Check for -GroupName at end
         if (/-[a-zA-Z0-9]+$/.test(withoutExt)) {
             return true;
         }
@@ -683,39 +853,74 @@
     }
 
     /**
+     * Format language tags for insertion into title
+     * Audio: [Ukrainian+English]
+     * Subs: [Subs Ukrainian+English]
+     */
+    function formatLanguageTags(audioLangs, subLangs) {
+        const tags = [];
+
+        if (audioLangs && audioLangs.length > 0) {
+            tags.push(`[${audioLangs.join('+')}]`);
+        }
+
+        if (subLangs && subLangs.length > 0) {
+            tags.push(`[Subs ${subLangs.join('+')}]`);
+        }
+
+        return tags.join('');
+    }
+
+    /**
      * Apply all rename rules based on configuration
      */
-    function applyRenameRules(title, releaseGroup, isTV, config) {
+    function applyRenameRules(title, torrentData, config) {
         let result = title.trim();
 
-        // 1. Add release group if missing (from utp-exp.yml logic)
-        if (config.addReleaseGroup && releaseGroup && !hasReleaseGroup(result)) {
-            // Clean the release group name
-            const cleanGroup = releaseGroup.replace(/[^a-zA-Z0-9_-]/g, '');
+        // 1. Add release group if missing
+        if (config.addReleaseGroup && torrentData.releaseGroup && !hasReleaseGroup(result)) {
+            // Clean the release group name (alphanumeric, underscore, hyphen only)
+            const cleanGroup = torrentData.releaseGroup.replace(/[^a-zA-Z0-9_-]/g, '');
             if (cleanGroup) {
                 result = `${result}-${cleanGroup}`;
             }
         }
 
-        // 2. Add UKR tag after resolution (from utp-exp.yml)
-        // Pattern: insert UKR after 2160p|1080p|1080i|720p|480p
-        if (config.addUkrTag) {
-            result = result.replace(
-                /(.*?\b(?:2160p|1080[pi]|720p|480p)\b)(.*)/i,
-                '$1 UKR$2'
-            );
+        // 2. Add language tags after resolution (from mediainfo)
+        // Pattern: insert after 2160p|1080p|1080i|720p|480p
+        if (config.addLanguageTags) {
+            const langTags = formatLanguageTags(torrentData.audioLanguages, torrentData.subtitleLanguages);
+            if (langTags) {
+                // Find resolution marker and insert after it
+                const resolutionMatch = result.match(/(.*?\b(?:2160p|1080[pi]|720p|480p)\b)(.*)/i);
+                if (resolutionMatch) {
+                    result = `${resolutionMatch[1]} ${langTags}${resolutionMatch[2]}`;
+                } else {
+                    // No resolution found, append before group/end
+                    const groupMatch = result.match(/^(.+?)(-[a-zA-Z0-9]+)$/);
+                    if (groupMatch) {
+                        result = `${groupMatch[1]} ${langTags}${groupMatch[2]}`;
+                    } else {
+                        result = `${result} ${langTags}`;
+                    }
+                }
+            }
         }
 
-        // 3. Fix TV year position - swap year and season (from utp-exp.yml)
-        // Pattern: "Title S01E02 2020" -> "Title 2020 S01E02"
-        if (config.fixTvYear && isTV) {
-            result = result.replace(
-                /(.*?)(S\d{1,2}(?:E\d{1,2})?(?:-?E?\d{1,2})?)(\s+)(\d{4}(?:-\d{4})?)(.*)/i,
-                '$1$4$3$2$5'
-            );
+        // 3. Fix TV year - replace wrong year with original air date year
+        // Only for TV, when there's a year in the name that differs from original
+        if (config.fixTvYear && torrentData.isTV && torrentData.originalYear && torrentData.releaseYear) {
+            if (torrentData.releaseYear !== torrentData.originalYear) {
+                // Replace the wrong year with the correct original year
+                // Be careful not to replace years that are part of ranges like 2020-2024
+                result = result.replace(
+                    new RegExp(`\\b${torrentData.releaseYear}\\b(?!-|p|i)`, 'g'),
+                    torrentData.originalYear.toString()
+                );
+            }
         }
 
-        // 4. BD label normalization (from utp-exp.yml)
+        // 4. BD label normalization
         if (config.fixBdLabels) {
             result = result.replace(/\bBDRemux\b/gi, 'BluRay REMUX');
             result = result.replace(/\bBDRip\b/gi, 'BluRay');
@@ -873,10 +1078,24 @@
 
         // Calculate transformed name
         const transformedName = torrentData.releaseName
-            ? applyRenameRules(torrentData.releaseName, torrentData.releaseGroup, torrentData.isTV, config)
+            ? applyRenameRules(torrentData.releaseName, torrentData, config)
             : '';
 
         const hasChanges = transformedName !== torrentData.releaseName;
+
+        // Build year info display
+        let yearInfo = '';
+        if (torrentData.isTV) {
+            if (torrentData.originalYear && torrentData.releaseYear && torrentData.originalYear !== torrentData.releaseYear) {
+                yearInfo = `<span style="color: #f87171;">Release: ${torrentData.releaseYear}</span> → <span style="color: #4ade80;">Original: ${torrentData.originalYear}</span>`;
+            } else if (torrentData.originalYear) {
+                yearInfo = `Original: ${torrentData.originalYear}`;
+            }
+        }
+
+        // Build language tags display
+        const audioTagsHtml = torrentData.audioLanguages.map(l => `<span class="groomarr-tag audio">${l}</span>`).join('');
+        const subsTagsHtml = torrentData.subtitleLanguages.map(l => `<span class="groomarr-tag subs">${l}</span>`).join('');
 
         overlay.innerHTML = `
             <div class="groomarr-panel">
@@ -914,8 +1133,22 @@
 
                             <div class="groomarr-info">
                                 <div class="groomarr-info-label">Media Type</div>
-                                <div class="groomarr-info-value">${torrentData.mediaType || 'Unknown'} ${torrentData.releaseGroup ? `• Group: ${torrentData.releaseGroup}` : ''}</div>
+                                <div class="groomarr-info-value">
+                                    ${torrentData.mediaType || 'Unknown'}
+                                    ${torrentData.releaseGroup ? `• Group: ${torrentData.releaseGroup}` : ''}
+                                    ${yearInfo ? `<br><span class="small">${yearInfo}</span>` : ''}
+                                </div>
                             </div>
+
+                            ${(torrentData.audioLanguages.length > 0 || torrentData.subtitleLanguages.length > 0) ? `
+                                <div class="groomarr-info">
+                                    <div class="groomarr-info-label">Detected Languages</div>
+                                    <div class="groomarr-tags">
+                                        ${audioTagsHtml ? `<span style="color:#60a5fa;font-size:10px;margin-right:4px;">Audio:</span>${audioTagsHtml}` : ''}
+                                        ${subsTagsHtml ? `<span style="color:#fbbf24;font-size:10px;margin-right:4px;margin-left:8px;">Subs:</span>${subsTagsHtml}` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
                         </div>
 
                         <div class="groomarr-section">
@@ -971,11 +1204,11 @@
 
                             <div class="groomarr-toggle">
                                 <div>
-                                    <div class="groomarr-toggle-label">Add UKR tag</div>
-                                    <div class="groomarr-toggle-desc">Insert UKR after resolution (1080p, 720p, etc.)</div>
+                                    <div class="groomarr-toggle-label">Add language tags</div>
+                                    <div class="groomarr-toggle-desc">Insert [Audio+Langs][Subs Langs] from mediainfo after resolution</div>
                                 </div>
                                 <label class="groomarr-switch">
-                                    <input type="checkbox" id="groomarr-ukr" ${config.addUkrTag ? 'checked' : ''}>
+                                    <input type="checkbox" id="groomarr-lang" ${config.addLanguageTags ? 'checked' : ''}>
                                     <span class="groomarr-slider"></span>
                                 </label>
                             </div>
@@ -993,8 +1226,8 @@
 
                             <div class="groomarr-toggle">
                                 <div>
-                                    <div class="groomarr-toggle-label">Fix TV year position</div>
-                                    <div class="groomarr-toggle-desc">Swap year and season (S01 2020 → 2020 S01)</div>
+                                    <div class="groomarr-toggle-label">Fix TV year</div>
+                                    <div class="groomarr-toggle-desc">Replace season year with original air date year for TV shows</div>
                                 </div>
                                 <label class="groomarr-switch">
                                     <input type="checkbox" id="groomarr-tvyear" ${config.fixTvYear ? 'checked' : ''}>
@@ -1126,7 +1359,7 @@
                 const newConfig = {
                     groomarrUrl: document.getElementById('groomarr-url').value.trim(),
                     renameMode: document.getElementById('groomarr-default-mode').value,
-                    addUkrTag: document.getElementById('groomarr-ukr').checked,
+                    addLanguageTags: document.getElementById('groomarr-lang').checked,
                     addReleaseGroup: document.getElementById('groomarr-group').checked,
                     fixTvYear: document.getElementById('groomarr-tvyear').checked,
                     fixBdLabels: document.getElementById('groomarr-bd').checked,
@@ -1154,15 +1387,15 @@
             });
         }
 
-        // Live preview update when settings change
-        const settingsInputs = ['groomarr-ukr', 'groomarr-group', 'groomarr-tvyear', 'groomarr-bd'];
+        // Live preview update when settings change in settings tab
+        const settingsInputs = ['groomarr-lang', 'groomarr-group', 'groomarr-tvyear', 'groomarr-bd'];
         settingsInputs.forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('change', () => {
                     // Create temp config for preview
                     const tempConfig = {
-                        addUkrTag: document.getElementById('groomarr-ukr').checked,
+                        addLanguageTags: document.getElementById('groomarr-lang').checked,
                         addReleaseGroup: document.getElementById('groomarr-group').checked,
                         fixTvYear: document.getElementById('groomarr-tvyear').checked,
                         fixBdLabels: document.getElementById('groomarr-bd').checked,
@@ -1173,8 +1406,7 @@
                     if (newNameInput && torrentData.releaseName) {
                         const transformed = applyRenameRules(
                             torrentData.releaseName,
-                            torrentData.releaseGroup,
-                            torrentData.isTV,
+                            torrentData,
                             tempConfig
                         );
                         newNameInput.value = transformed;
