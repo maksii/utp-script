@@ -32,15 +32,27 @@
         renameMode: 'torrent_and_folder',
 
         // Rename rule toggles
-        addLanguageTags: true,        // Add parsed audio/subtitle languages after resolution
+        languageTagMode: 'audio+subs', // 'none', 'audio', 'audio+subs'
         addReleaseGroup: true,        // Add uploader as group if missing
-        fixTvYear: true,              // Replace wrong year with original air date
+        tvYearMode: 'replace',        // 'keep', 'replace', 'remove'
         fixBdLabels: true,            // BDRemux → BluRay REMUX, etc.
 
         // UI options
         showNotifications: true,
         notificationDuration: 3000,
     };
+
+    const LANGUAGE_TAG_MODES = [
+        { value: 'none', label: 'None' },
+        { value: 'audio', label: 'Audio Only' },
+        { value: 'audio+subs', label: 'Audio + Subtitles' },
+    ];
+
+    const TV_YEAR_MODES = [
+        { value: 'keep', label: 'Keep Original' },
+        { value: 'replace', label: 'Replace with Premiere Year' },
+        { value: 'remove', label: 'Remove Year' },
+    ];
 
     const RENAME_MODES = [
         { value: 'torrent_only', label: 'Torrent Only' },
@@ -606,6 +618,14 @@
     // ============================================================================
 
     /**
+     * Clean language name by removing region specs like " (US)", " (UK)", etc.
+     * e.g., "English (US)" -> "English"
+     */
+    function cleanLanguageName(lang) {
+        return lang.replace(/\s*\([^)]+\)\s*$/, '').trim();
+    }
+
+    /**
      * Extract audio languages from mediainfo__audio section
      * Returns array of unique language names
      */
@@ -624,7 +644,7 @@
         imgs.forEach(img => {
             const lang = img.getAttribute('alt');
             if (lang) {
-                languages.add(lang);
+                languages.add(cleanLanguageName(lang));
             }
         });
 
@@ -634,7 +654,7 @@
             titledElements.forEach(el => {
                 const title = el.getAttribute('title');
                 if (title) {
-                    languages.add(title);
+                    languages.add(cleanLanguageName(title));
                 }
             });
         }
@@ -660,7 +680,7 @@
         imgs.forEach(img => {
             const lang = img.getAttribute('alt');
             if (lang) {
-                languages.add(lang);
+                languages.add(cleanLanguageName(lang));
             }
         });
 
@@ -670,7 +690,7 @@
             titledElements.forEach(el => {
                 const title = el.getAttribute('title');
                 if (title) {
-                    languages.add(title);
+                    languages.add(cleanLanguageName(title));
                 }
             });
         }
@@ -856,15 +876,22 @@
      * Format language tags for insertion into title
      * Audio: [Ukrainian+English]
      * Subs: [Subs Ukrainian+English]
+     * @param {string[]} audioLangs - Array of audio languages
+     * @param {string[]} subLangs - Array of subtitle languages
+     * @param {string} mode - 'none', 'audio', or 'audio+subs'
      */
-    function formatLanguageTags(audioLangs, subLangs) {
+    function formatLanguageTags(audioLangs, subLangs, mode) {
+        if (mode === 'none') {
+            return '';
+        }
+
         const tags = [];
 
         if (audioLangs && audioLangs.length > 0) {
             tags.push(`[${audioLangs.join('+')}]`);
         }
 
-        if (subLangs && subLangs.length > 0) {
+        if (mode === 'audio+subs' && subLangs && subLangs.length > 0) {
             tags.push(`[Subs ${subLangs.join('+')}]`);
         }
 
@@ -888,8 +915,8 @@
 
         // 2. Add language tags after resolution (from mediainfo)
         // Pattern: insert after 2160p|1080p|1080i|720p|480p
-        if (config.addLanguageTags) {
-            const langTags = formatLanguageTags(torrentData.audioLanguages, torrentData.subtitleLanguages);
+        if (config.languageTagMode && config.languageTagMode !== 'none') {
+            const langTags = formatLanguageTags(torrentData.audioLanguages, torrentData.subtitleLanguages, config.languageTagMode);
             if (langTags) {
                 // Find resolution marker and insert after it
                 const resolutionMatch = result.match(/(.*?\b(?:2160p|1080[pi]|720p|480p)\b)(.*)/i);
@@ -907,15 +934,22 @@
             }
         }
 
-        // 3. Fix TV year - replace wrong year with original air date year
-        // Only for TV, when there's a year in the name that differs from original
-        if (config.fixTvYear && torrentData.isTV && torrentData.originalYear && torrentData.releaseYear) {
-            if (torrentData.releaseYear !== torrentData.originalYear) {
-                // Replace the wrong year with the correct original year
+        // 3. TV year handling - replace or remove year based on mode
+        // Only for TV shows with detected years
+        if (config.tvYearMode && config.tvYearMode !== 'keep' && torrentData.isTV && torrentData.releaseYear) {
+            if (config.tvYearMode === 'replace' && torrentData.originalYear && torrentData.releaseYear !== torrentData.originalYear) {
+                // Replace the wrong year with the correct premiere year
                 // Be careful not to replace years that are part of ranges like 2020-2024
                 result = result.replace(
                     new RegExp(`\\b${torrentData.releaseYear}\\b(?!-|p|i)`, 'g'),
                     torrentData.originalYear.toString()
+                );
+            } else if (config.tvYearMode === 'remove') {
+                // Remove the year from the title entirely
+                // Be careful not to remove years that are part of ranges like 2020-2024
+                result = result.replace(
+                    new RegExp(`\\s*\\b${torrentData.releaseYear}\\b(?!-|p|i)`, 'g'),
+                    ''
                 );
             }
         }
@@ -1204,13 +1238,14 @@
 
                             <div class="groomarr-toggle">
                                 <div>
-                                    <div class="groomarr-toggle-label">Add language tags</div>
+                                    <div class="groomarr-toggle-label">Language tags</div>
                                     <div class="groomarr-toggle-desc">Insert [Audio+Langs][Subs Langs] from mediainfo after resolution</div>
                                 </div>
-                                <label class="groomarr-switch">
-                                    <input type="checkbox" id="groomarr-lang" ${config.addLanguageTags ? 'checked' : ''}>
-                                    <span class="groomarr-slider"></span>
-                                </label>
+                                <select class="groomarr-select" id="groomarr-lang-mode" style="width: auto; min-width: 140px;">
+                                    ${LANGUAGE_TAG_MODES.map(m => `
+                                        <option value="${m.value}" ${m.value === config.languageTagMode ? 'selected' : ''}>${m.label}</option>
+                                    `).join('')}
+                                </select>
                             </div>
 
                             <div class="groomarr-toggle">
@@ -1226,13 +1261,14 @@
 
                             <div class="groomarr-toggle">
                                 <div>
-                                    <div class="groomarr-toggle-label">Fix TV year</div>
-                                    <div class="groomarr-toggle-desc">Replace season year with original air date year for TV shows</div>
+                                    <div class="groomarr-toggle-label">TV show year</div>
+                                    <div class="groomarr-toggle-desc">Handle year in TV show release names</div>
                                 </div>
-                                <label class="groomarr-switch">
-                                    <input type="checkbox" id="groomarr-tvyear" ${config.fixTvYear ? 'checked' : ''}>
-                                    <span class="groomarr-slider"></span>
-                                </label>
+                                <select class="groomarr-select" id="groomarr-tvyear-mode" style="width: auto; min-width: 180px;">
+                                    ${TV_YEAR_MODES.map(m => `
+                                        <option value="${m.value}" ${m.value === config.tvYearMode ? 'selected' : ''}>${m.label}</option>
+                                    `).join('')}
+                                </select>
                             </div>
 
                             <div class="groomarr-toggle">
@@ -1359,9 +1395,9 @@
                 const newConfig = {
                     groomarrUrl: document.getElementById('groomarr-url').value.trim(),
                     renameMode: document.getElementById('groomarr-default-mode').value,
-                    addLanguageTags: document.getElementById('groomarr-lang').checked,
+                    languageTagMode: document.getElementById('groomarr-lang-mode').value,
                     addReleaseGroup: document.getElementById('groomarr-group').checked,
-                    fixTvYear: document.getElementById('groomarr-tvyear').checked,
+                    tvYearMode: document.getElementById('groomarr-tvyear-mode').value,
                     fixBdLabels: document.getElementById('groomarr-bd').checked,
                     showNotifications: document.getElementById('groomarr-notify').checked,
                     notificationDuration: 3000,
@@ -1388,16 +1424,16 @@
         }
 
         // Live preview update when settings change in settings tab
-        const settingsInputs = ['groomarr-lang', 'groomarr-group', 'groomarr-tvyear', 'groomarr-bd'];
+        const settingsInputs = ['groomarr-lang-mode', 'groomarr-group', 'groomarr-tvyear-mode', 'groomarr-bd'];
         settingsInputs.forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('change', () => {
                     // Create temp config for preview
                     const tempConfig = {
-                        addLanguageTags: document.getElementById('groomarr-lang').checked,
+                        languageTagMode: document.getElementById('groomarr-lang-mode').value,
                         addReleaseGroup: document.getElementById('groomarr-group').checked,
-                        fixTvYear: document.getElementById('groomarr-tvyear').checked,
+                        tvYearMode: document.getElementById('groomarr-tvyear-mode').value,
                         fixBdLabels: document.getElementById('groomarr-bd').checked,
                     };
 
