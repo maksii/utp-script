@@ -845,10 +845,8 @@
             data.audioLanguages = extractAudioLanguages();
             data.subtitleLanguages = extractSubtitleLanguages();
 
-            // Validation
-            if (!data.hash) {
-                data.error = 'Could not extract torrent hash from page';
-            } else if (!data.releaseName) {
+            // Validation - only error if release name is missing (hash can be entered manually)
+            if (!data.releaseName) {
                 data.error = 'Could not extract release name from page';
             }
 
@@ -1169,10 +1167,22 @@
                     <!-- Rename Tab -->
                     <div class="groomarr-tab-content active" id="tab-rename">
                         <div class="groomarr-section">
-                            <div class="groomarr-info">
-                                <div class="groomarr-info-label">Torrent Hash</div>
-                                <div class="groomarr-info-value hash">${torrentData.hash || 'Not found'}</div>
-                            </div>
+                            ${torrentData.hash ? `
+                                <div class="groomarr-info">
+                                    <div class="groomarr-info-label">Torrent Hash</div>
+                                    <div class="groomarr-info-value hash">${torrentData.hash}</div>
+                                </div>
+                            ` : `
+                                <div class="groomarr-info" style="border-left: 3px solid #fbbf24;">
+                                    <div class="groomarr-info-label">Torrent Hash</div>
+                                    <div class="groomarr-info-value" style="color: #fbbf24; font-size: 12px; margin-bottom: 8px;">
+                                        ⚠️ Hash not detected (some sites hide it for security)
+                                    </div>
+                                    <input type="text" class="groomarr-input" id="groomarr-manual-hash" 
+                                        placeholder="Paste torrent hash here (40 hex characters)..." 
+                                        style="font-family: 'Monaco', 'Menlo', monospace; font-size: 12px;">
+                                </div>
+                            `}
 
                             <div class="groomarr-info">
                                 <div class="groomarr-info-label">Media Type</div>
@@ -1219,7 +1229,7 @@
 
                         <div class="groomarr-actions">
                             <button class="groomarr-btn-secondary" id="groomarr-cancel">Cancel</button>
-                            <button class="groomarr-btn-primary" id="groomarr-rename" ${!torrentData.hash ? 'disabled' : ''}>
+                            <button class="groomarr-btn-primary" id="groomarr-rename">
                                 Rename Torrent
                             </button>
                         </div>
@@ -1348,6 +1358,25 @@
                 const mode = document.getElementById('groomarr-mode').value;
                 const config = getConfig();
 
+                // Get hash from detected value or manual input
+                let hash = torrentData.hash;
+                if (!hash) {
+                    const manualHashInput = document.getElementById('groomarr-manual-hash');
+                    if (manualHashInput) {
+                        hash = manualHashInput.value.trim().toLowerCase();
+                    }
+                }
+
+                // Validate hash format (40 hex characters)
+                if (!hash) {
+                    showToast('Please enter a torrent hash', 'error');
+                    return;
+                }
+                if (!/^[a-f0-9]{40}$/i.test(hash)) {
+                    showToast('Invalid hash format (must be 40 hex characters)', 'error');
+                    return;
+                }
+
                 if (!newName) {
                     showToast('Please enter a new name', 'error');
                     return;
@@ -1356,7 +1385,7 @@
                 renameBtn.disabled = true;
                 renameBtn.innerHTML = '<div class="groomarr-spinner"></div> Renaming...';
 
-                sendRenameRequest(torrentData.hash, newName, mode, config.groomarrUrl, (err, result) => {
+                sendRenameRequest(hash, newName, mode, config.groomarrUrl, (err, result) => {
                     renameBtn.disabled = false;
                     renameBtn.textContent = 'Rename Torrent';
 
