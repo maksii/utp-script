@@ -803,14 +803,23 @@
                 }
             }
 
-            // Release Group - from uploader/group link
-            const groupElement = document.evaluate(
-                '/html/body/main/article/ul/li[8]/span/a',
-                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
-            ).singleNodeValue;
-
-            if (groupElement) {
-                data.releaseGroup = groupElement.textContent.trim();
+            // Release Group - from uploader/group link or "Anonymous"
+            const uploaderLi = document.querySelector('li.torrent__uploader');
+            if (uploaderLi) {
+                // Look for user link - only exists for non-anonymous uploads
+                const userLink = uploaderLi.querySelector('a.user-tag__link');
+                if (userLink) {
+                    const groupName = userLink.textContent.trim();
+                    if (groupName) {
+                        data.releaseGroup = groupName;
+                    }
+                } else {
+                    // Anonymous upload - check for the anonymous span
+                    const anonSpan = uploaderLi.querySelector('span.fa-eye-slash');
+                    if (anonSpan) {
+                        data.releaseGroup = 'Anonymous';
+                    }
+                }
             }
 
             // Type (TV/Movie)
