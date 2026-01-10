@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Groomarr UNIT3D Helperer
 // @namespace    https://github.com/maksii/Groomarr
-// @version      1.0.0
+// @version      1.1.0
 // @description  Rename torrents in qBittorrent via Groomarr manual endpoint from UNIT3D torrent pages
 // @author       maksii
 // @match        *://*/torrents/*
@@ -129,7 +129,7 @@
         .groomarr-panel {
             background: #1a1a2e;
             border-radius: 16px;
-            width: 550px;
+            width: 620px;
             max-width: 90vw;
             max-height: 90vh;
             overflow-y: auto;
@@ -595,6 +595,263 @@
         .groomarr-tag.subs {
             border-left: 3px solid #fbbf24;
         }
+
+        /* Preview Results */
+        .groomarr-preview-results {
+            margin-top: 16px;
+            border: 1px solid #2d3748;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .groomarr-preview-header {
+            background: #16213e;
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #2d3748;
+        }
+
+        .groomarr-preview-title {
+            color: #e0e0e0;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .groomarr-preview-stats {
+            display: flex;
+            gap: 12px;
+            font-size: 12px;
+        }
+
+        .groomarr-preview-stat {
+            color: #a0a0a0;
+        }
+
+        .groomarr-preview-stat strong {
+            color: #4ade80;
+        }
+
+        .groomarr-preview-body {
+            padding: 16px;
+            background: #0d1117;
+        }
+
+        .groomarr-preview-section {
+            margin-bottom: 16px;
+        }
+
+        .groomarr-preview-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .groomarr-preview-section-title {
+            color: #a0a0a0;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .groomarr-preview-change {
+            background: #16213e;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+        }
+
+        .groomarr-preview-change:last-child {
+            margin-bottom: 0;
+        }
+
+        .groomarr-preview-change.no-change {
+            opacity: 0.5;
+        }
+
+        .groomarr-preview-old {
+            color: #f87171;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            word-break: break-all;
+            line-height: 1.5;
+        }
+
+        .groomarr-preview-old::before {
+            content: '− ';
+            opacity: 0.5;
+        }
+
+        .groomarr-preview-new {
+            color: #4ade80;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            word-break: break-all;
+            line-height: 1.5;
+            margin-top: 4px;
+        }
+
+        .groomarr-preview-new::before {
+            content: '+ ';
+            opacity: 0.5;
+        }
+
+        .groomarr-preview-unchanged {
+            color: #6b7280;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+
+        .groomarr-preview-files {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #2d3748;
+            border-radius: 6px;
+        }
+
+        .groomarr-preview-file {
+            padding: 10px 12px;
+            border-bottom: 1px solid #2d3748;
+            background: #16213e;
+        }
+
+        .groomarr-preview-file:last-child {
+            border-bottom: none;
+        }
+
+        .groomarr-preview-file:nth-child(even) {
+            background: #1a1f2e;
+        }
+
+        .groomarr-preview-file-num {
+            color: #6b7280;
+            font-size: 10px;
+            margin-bottom: 4px;
+        }
+
+        .groomarr-preview-warnings {
+            background: rgba(251, 191, 36, 0.1);
+            border: 1px solid #fbbf24;
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 12px;
+        }
+
+        .groomarr-preview-warning {
+            color: #fbbf24;
+            font-size: 12px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .groomarr-preview-warning:last-child {
+            margin-bottom: 0;
+        }
+
+        .groomarr-preview-warning::before {
+            content: '⚠️';
+        }
+
+        .groomarr-preview-error {
+            background: rgba(248, 113, 113, 0.1);
+            border: 1px solid #f87171;
+            border-radius: 6px;
+            padding: 12px;
+            color: #f87171;
+            font-size: 13px;
+            margin-top: 12px;
+        }
+
+        .groomarr-preview-success {
+            background: rgba(74, 222, 128, 0.1);
+            border: 1px solid #4ade80;
+            border-radius: 6px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .groomarr-preview-success-icon {
+            color: #4ade80;
+            font-size: 18px;
+        }
+
+        .groomarr-preview-success-text {
+            color: #4ade80;
+            font-size: 13px;
+        }
+
+        /* Button variants */
+        .groomarr-btn-preview {
+            background: #2d3748;
+            color: #60a5fa;
+            border: 1px solid #3b82f6;
+            border-radius: 8px;
+            padding: 14px 24px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .groomarr-btn-preview:hover {
+            background: #3d4758;
+            border-color: #60a5fa;
+        }
+
+        .groomarr-btn-preview:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Collapsible file list */
+        .groomarr-files-toggle {
+            background: #16213e;
+            border: none;
+            color: #60a5fa;
+            padding: 8px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            width: 100%;
+            text-align: left;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .groomarr-files-toggle:hover {
+            background: #1e2a4a;
+        }
+
+        .groomarr-files-toggle svg {
+            transition: transform 0.2s;
+        }
+
+        .groomarr-files-toggle.expanded svg {
+            transform: rotate(180deg);
+        }
+
+        .groomarr-files-list {
+            display: none;
+        }
+
+        .groomarr-files-list.expanded {
+            display: block;
+        }
     `);
 
     // ============================================================================
@@ -1033,6 +1290,40 @@
         });
     }
 
+    function sendPreviewRequest(hash, newName, mode, url, callback) {
+        GM_xmlhttpRequest({
+            method: 'POST',
+            url: `${url}/rename/preview`,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            data: JSON.stringify({
+                torrent_hash: hash,
+                new_name: newName,
+                mode: mode
+            }),
+            timeout: 30000,
+            onload: function(response) {
+                try {
+                    const data = JSON.parse(response.responseText);
+                    if (response.status >= 200 && response.status < 300) {
+                        callback(null, data);
+                    } else {
+                        callback(new Error(data.reason || `HTTP ${response.status}`), data);
+                    }
+                } catch (e) {
+                    callback(new Error('Invalid response from server'), null);
+                }
+            },
+            onerror: function(error) {
+                callback(new Error('Failed to connect to Groomarr'), null);
+            },
+            ontimeout: function() {
+                callback(new Error('Request timeout - is the torrent in qBittorrent?'), null);
+            }
+        });
+    }
+
     // ============================================================================
     // UI COMPONENTS
     // ============================================================================
@@ -1227,8 +1518,18 @@
                             </select>
                         </div>
 
+                        <!-- Preview Results Container -->
+                        <div id="groomarr-preview-container"></div>
+
                         <div class="groomarr-actions">
                             <button class="groomarr-btn-secondary" id="groomarr-cancel">Cancel</button>
+                            <button class="groomarr-btn-preview" id="groomarr-preview">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                                Preview
+                            </button>
                             <button class="groomarr-btn-primary" id="groomarr-rename">
                                 Rename Torrent
                             </button>
@@ -1335,6 +1636,181 @@
         bindPanelEvents(torrentData);
     }
 
+    function renderPreviewResults(container, data) {
+        if (data.status !== 'ok') {
+            container.innerHTML = `
+                <div class="groomarr-preview-error">
+                    <strong>Preview failed:</strong> ${escapeHtml(data.reason || 'Unknown error')}
+                </div>
+            `;
+            return;
+        }
+
+        // Check if there are any changes
+        const hasAnyChanges = data.torrent_will_change || data.folder_will_change || (data.files_will_change || 0) > 0;
+
+        if (!hasAnyChanges) {
+            container.innerHTML = `
+                <div class="groomarr-preview-success">
+                    <span class="groomarr-preview-success-icon">✓</span>
+                    <span class="groomarr-preview-success-text">No changes needed - torrent already matches the target name</span>
+                </div>
+            `;
+            return;
+        }
+
+        // Format mode for display
+        const modeLabels = {
+            'torrent_only': 'Torrent Only',
+            'torrent_and_folder': 'Torrent + Folder',
+            'torrent_folder_files': 'Torrent + Folder + Files',
+            'folder_only': 'Folder Only',
+            'files_only': 'Files Only'
+        };
+        const modeDisplay = modeLabels[data.mode] || data.mode;
+
+        // Build the torrent/folder changes section
+        let changesHtml = '';
+        
+        if (data.torrent_will_change && data.current_torrent_name) {
+            changesHtml += `
+                <div class="groomarr-preview-section">
+                    <div class="groomarr-preview-section-title">Torrent Name</div>
+                    <div class="groomarr-preview-change">
+                        <div class="groomarr-preview-old">${escapeHtml(data.current_torrent_name || '')}</div>
+                        <div class="groomarr-preview-new">${escapeHtml(data.new_torrent_name || '')}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (data.folder_will_change && data.current_root_folder) {
+            changesHtml += `
+                <div class="groomarr-preview-section">
+                    <div class="groomarr-preview-section-title">Root Folder</div>
+                    <div class="groomarr-preview-change">
+                        <div class="groomarr-preview-old">${escapeHtml(data.current_root_folder || '')}</div>
+                        <div class="groomarr-preview-new">${escapeHtml(data.new_root_folder || '')}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Build file renames section
+        let filesHtml = '';
+        const fileRenames = data.file_renames || [];
+        if (fileRenames.length > 0) {
+            const changedFiles = fileRenames.filter(f => f.will_change);
+            
+            if (changedFiles.length > 0) {
+                // Sort files by extracting episode numbers or alphabetically
+                changedFiles.sort((a, b) => {
+                    const aMatch = (a.new_path || '').match(/E(\d+)/i);
+                    const bMatch = (b.new_path || '').match(/E(\d+)/i);
+                    if (aMatch && bMatch) {
+                        return parseInt(aMatch[1]) - parseInt(bMatch[1]);
+                    }
+                    return (a.new_path || '').localeCompare(b.new_path || '');
+                });
+
+                const fileItems = changedFiles.map((file, idx) => {
+                    // Get just the filename from the path for cleaner display
+                    const oldName = (file.old_path || '').split('/').pop() || file.old_path;
+                    const newName = (file.new_path || '').split('/').pop() || file.new_path;
+                    
+                    return `
+                        <div class="groomarr-preview-file">
+                            <div class="groomarr-preview-file-num">File ${idx + 1} of ${changedFiles.length}</div>
+                            <div class="groomarr-preview-old">${escapeHtml(oldName)}</div>
+                            <div class="groomarr-preview-new">${escapeHtml(newName)}</div>
+                        </div>
+                    `;
+                }).join('');
+
+                filesHtml = `
+                    <div class="groomarr-preview-section">
+                        <div class="groomarr-preview-section-title">File Renames</div>
+                        <button class="groomarr-files-toggle" id="groomarr-files-toggle">
+                            <span>Show ${changedFiles.length} file${changedFiles.length !== 1 ? 's' : ''} to be renamed</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </button>
+                        <div class="groomarr-files-list" id="groomarr-files-list">
+                            <div class="groomarr-preview-files">
+                                ${fileItems}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // Build warnings section
+        let warningsHtml = '';
+        const warnings = data.warnings || [];
+        if (warnings.length > 0) {
+            warningsHtml = `
+                <div class="groomarr-preview-warnings">
+                    ${warnings.map(w => `<div class="groomarr-preview-warning">${escapeHtml(w)}</div>`).join('')}
+                </div>
+            `;
+        }
+
+        // Build stats
+        const statsItems = [];
+        if (data.torrent_will_change) statsItems.push('Torrent: <strong>Yes</strong>');
+        if (data.folder_will_change) statsItems.push('Folder: <strong>Yes</strong>');
+        const filesChanged = data.files_will_change || 0;
+        const totalFiles = data.total_files || 0;
+        if (filesChanged > 0) {
+            statsItems.push(`Files: <strong>${filesChanged}/${totalFiles}</strong>`);
+        }
+
+        container.innerHTML = `
+            <div class="groomarr-preview-results">
+                <div class="groomarr-preview-header">
+                    <div class="groomarr-preview-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                            <polyline points="22 4 12 14.01 9 11.01"/>
+                        </svg>
+                        Preview Ready
+                        <span style="color: #6b7280; font-weight: 400; font-size: 12px; margin-left: 8px;">(${escapeHtml(modeDisplay)})</span>
+                    </div>
+                    <div class="groomarr-preview-stats">
+                        ${statsItems.map(s => `<span class="groomarr-preview-stat">${s}</span>`).join('')}
+                    </div>
+                </div>
+                <div class="groomarr-preview-body">
+                    ${changesHtml}
+                    ${filesHtml}
+                    ${warningsHtml}
+                </div>
+            </div>
+        `;
+
+        // Bind file toggle
+        const toggleBtn = document.getElementById('groomarr-files-toggle');
+        const filesList = document.getElementById('groomarr-files-list');
+        if (toggleBtn && filesList) {
+            toggleBtn.addEventListener('click', () => {
+                toggleBtn.classList.toggle('expanded');
+                filesList.classList.toggle('expanded');
+                const isExpanded = filesList.classList.contains('expanded');
+                toggleBtn.querySelector('span').textContent = isExpanded 
+                    ? `Hide ${filesChanged} file${filesChanged !== 1 ? 's' : ''}`
+                    : `Show ${filesChanged} file${filesChanged !== 1 ? 's' : ''} to be renamed`;
+            });
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     function bindPanelEvents(torrentData) {
         // Close button
         document.getElementById('groomarr-close').addEventListener('click', hidePanel);
@@ -1350,6 +1826,69 @@
             });
         });
 
+        // Helper function to get hash (used by both preview and rename)
+        function getHashValue() {
+            let hash = torrentData.hash;
+            if (!hash) {
+                const manualHashInput = document.getElementById('groomarr-manual-hash');
+                if (manualHashInput) {
+                    hash = manualHashInput.value.trim().toLowerCase();
+                }
+            }
+            return hash;
+        }
+
+        // Preview button
+        const previewBtn = document.getElementById('groomarr-preview');
+        if (previewBtn) {
+            previewBtn.addEventListener('click', () => {
+                const newName = document.getElementById('groomarr-new-name').value.trim();
+                const mode = document.getElementById('groomarr-mode').value;
+                const config = getConfig();
+                const hash = getHashValue();
+                const previewContainer = document.getElementById('groomarr-preview-container');
+
+                // Validate hash format (40 hex characters)
+                if (!hash) {
+                    showToast('Please enter a torrent hash', 'error');
+                    return;
+                }
+                if (!/^[a-f0-9]{40}$/i.test(hash)) {
+                    showToast('Invalid hash format (must be 40 hex characters)', 'error');
+                    return;
+                }
+
+                if (!newName) {
+                    showToast('Please enter a new name', 'error');
+                    return;
+                }
+
+                previewBtn.disabled = true;
+                previewBtn.innerHTML = '<div class="groomarr-spinner"></div> Loading...';
+
+                sendPreviewRequest(hash, newName, mode, config.groomarrUrl, (err, result) => {
+                    previewBtn.disabled = false;
+                    previewBtn.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                        Preview
+                    `;
+
+                    if (err) {
+                        previewContainer.innerHTML = `
+                            <div class="groomarr-preview-error">
+                                <strong>Preview failed:</strong> ${err.message}
+                            </div>
+                        `;
+                    } else {
+                        renderPreviewResults(previewContainer, result);
+                    }
+                });
+            });
+        }
+
         // Rename button
         const renameBtn = document.getElementById('groomarr-rename');
         if (renameBtn) {
@@ -1357,15 +1896,7 @@
                 const newName = document.getElementById('groomarr-new-name').value.trim();
                 const mode = document.getElementById('groomarr-mode').value;
                 const config = getConfig();
-
-                // Get hash from detected value or manual input
-                let hash = torrentData.hash;
-                if (!hash) {
-                    const manualHashInput = document.getElementById('groomarr-manual-hash');
-                    if (manualHashInput) {
-                        hash = manualHashInput.value.trim().toLowerCase();
-                    }
-                }
+                const hash = getHashValue();
 
                 // Validate hash format (40 hex characters)
                 if (!hash) {
@@ -1460,6 +1991,16 @@
                 showMainPanel();
             });
         }
+
+        // Clear preview when mode or name changes
+        const modeSelect = document.getElementById('groomarr-mode');
+        const nameInput = document.getElementById('groomarr-new-name');
+        const clearPreviewContainer = () => {
+            const container = document.getElementById('groomarr-preview-container');
+            if (container) container.innerHTML = '';
+        };
+        if (modeSelect) modeSelect.addEventListener('change', clearPreviewContainer);
+        if (nameInput) nameInput.addEventListener('input', clearPreviewContainer);
 
         // Live preview update when settings change in settings tab
         const settingsInputs = ['groomarr-lang-mode', 'groomarr-group', 'groomarr-tvyear-mode', 'groomarr-bd'];
