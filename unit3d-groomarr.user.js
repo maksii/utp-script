@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         Groomarr UNIT3D Helperer
 // @namespace    https://github.com/maksii/Groomarr
-// @version      1.1.1
+// @version      1.2.0
 // @description  Rename torrents in qBittorrent via Groomarr manual endpoint from UNIT3D torrent pages
 // @author       maksii
 // @match        *://*/torrents/*
+// @match        *://toloka.to/t*
+// @match        *://toloka.to/tracker.php*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -24,7 +26,7 @@
     // ============================================================================
 
     const CONFIG_KEY = 'groomarr_config';
-    const VERSION = '1.1.0';
+    const VERSION = '1.2.0';
 
     const DEFAULT_CONFIG = {
         // Groomarr API settings
@@ -61,6 +63,294 @@
         { value: 'folder_only', label: 'Folder Only' },
         { value: 'files_only', label: 'Files Only' },
     ];
+
+    // ============================================================================
+    // SITE-SPECIFIC CONFIGURATIONS
+    // ============================================================================
+
+    /**
+     * Site configuration system for handling different tracker layouts.
+     * Each site config can define:
+     * - urlPatterns: Array of regex patterns to match the site
+     * - torrentIdPattern: Regex to extract torrent ID from URL (for /find/torrent)
+     * - selectors: Object with XPath or CSS selectors for data extraction
+     * - transforms: Object with functions to transform extracted values
+     */
+    const SITE_CONFIGS = {
+        // Default configuration for UNIT3D sites (utp.to, aither.cc, etc.)
+        default: {
+            name: 'UNIT3D Default',
+            urlPatterns: [/\/torrents\/\d+/],
+            torrentIdPattern: /\/torrents\/(\d+)/,
+            selectors: {
+                // Hash - from dialog header
+                hash: {
+                    type: 'xpath',
+                    path: '/html/body/main/article/menu/li[4]/dialog/header/div/div',
+                    fallback: {
+                        type: 'regex',
+                        pattern: /Info\s*Hash[:\s]*([a-fA-F0-9]{40})/i,
+                        group: 1
+                    }
+                },
+                // Release name - from main h1
+                releaseName: {
+                    type: 'xpath',
+                    path: '/html/body/main/article/h1',
+                    fallback: {
+                        type: 'css',
+                        selector: 'main article > h1'
+                    }
+                },
+                // Media type - TV/Movie
+                mediaType: {
+                    type: 'xpath',
+                    path: '/html/body/main/article/ul/li[1]/a'
+                },
+                // Original year - from localized title header
+                originalYear: {
+                    type: 'xpath',
+                    path: '/html/body/main/article/section[1]/a[1]/h1',
+                    fallback: {
+                        type: 'css',
+                        selector: 'main article section h1, main article header h1'
+                    }
+                },
+                // Uploader - from uploader li element
+                uploader: {
+                    type: 'css',
+                    selector: 'li.torrent__uploader a.user-tag__link',
+                    fallback: {
+                        type: 'css',
+                        selector: 'li.torrent__uploader span.fa-eye-slash',
+                        valueIfFound: 'Anonymous'
+                    }
+                },
+                // Audio languages - from mediainfo section
+                audioLanguages: {
+                    type: 'css-multi',
+                    selector: 'section.mediainfo__audio dd img[alt]',
+                    attribute: 'alt'
+                },
+                // Subtitle languages - from mediainfo section
+                subtitleLanguages: {
+                    type: 'css-multi',
+                    selector: 'section.mediainfo__subtitles li img[alt]',
+                    attribute: 'alt'
+                }
+            },
+            transforms: {
+                // Extract year from text like "Сімпсони (1989)"
+                originalYear: (text) => {
+                    const match = (text || '').match(/\((\d{4})\)/);
+                    return match ? parseInt(match[1], 10) : null;
+                }
+            }
+        },
+
+        // UNO (hawke.uno)
+        uno: {
+            name: 'UNO (hawke.uno)',
+            urlPatterns: [/hawke\.uno\/torrents\/\d+/i, /\.uno\/torrents\/\d+/i],
+            torrentIdPattern: /\/torrents\/(\d+)/,
+            selectors: {
+                releaseName: {
+                    type: 'xpath',
+                    path: '/html/body/div[2]/div/section/div[1]/div[2]/div[2]/div[2]/table/tbody/tr/td/div[1]/div[1]/span'
+                },
+                mediaType: {
+                    type: 'xpath',
+                    path: '/html/body/div[2]/div/section/div[1]/div[2]/div[2]/div[2]/table/tbody/tr/td/div[2]/div[1]/span[1]'
+                },
+                uploader: {
+                    type: 'xpath',
+                    path: '/html/body/div[2]/div/section/div[1]/div[2]/div[2]/div[2]/table/tbody/tr/td/div[2]/div[3]/a/span'
+                }
+                // Other selectors fallback to default
+            }
+        },
+
+        // Toloka.to - Ukrainian tracker with unique layout
+        toloka: {
+            name: 'Toloka',
+            urlPatterns: [/toloka\.to\/t\d+/i, /toloka\.to\/tracker\.php/i],
+            torrentIdPattern: /\/t(\d+)|topic=(\d+)/,
+            selectors: {
+                releaseName: {
+                    type: 'xpath',
+                    path: '/html/body/div[1]/table[2]/tbody/tr/td/table[4]/tbody/tr[2]/td[2]/table/tbody/tr[2]/td/div[1]/span/div[1]/span/span/span/span'
+                },
+                uploader: {
+                    type: 'xpath',
+                    path: '/html/body/div[1]/table[2]/tbody/tr/td/table[4]/tbody/tr[2]/td[1]/span[1]/b/a',
+                    fallback: {
+                        type: 'xpath',
+                        path: '/html/body/div[1]/table[2]/tbody/tr/td/table[4]/tbody/tr[2]/td[1]/span[1]/b',
+                        valueIfNoLink: 'Anonymous'
+                    }
+                },
+                hash: {
+                    type: 'xpath',
+                    path: '/html/body/div[1]/table[2]/tbody/tr/td/table[4]/tbody/tr[2]/td[2]/table/tbody/tr[2]/td/div[1]/table[2]/tbody/tr[2]/td[3]/a',
+                    attribute: 'href'
+                }
+            },
+            transforms: {
+                // Extract title after "/" - takes the part after the last "/"
+                // Example: "7 насінин / 7 seeds (2019) WEBDL 720p" -> "7 seeds (2019) WEBDL 720p"
+                releaseName: (text) => {
+                    if (!text) return text;
+                    const parts = text.split('/');
+                    if (parts.length > 1) {
+                        // Take everything after the last "/" and trim
+                        return parts.slice(1).join('/').trim();
+                    }
+                    return text.trim();
+                },
+                // Extract hash from magnet link href
+                // Example: "magnet:?xt=urn:btih:9b7ca33b..." -> "9b7ca33b..."
+                hash: (value) => {
+                    if (!value) return null;
+                    const match = value.match(/btih:([a-fA-F0-9]{40})/i);
+                    return match ? match[1].toLowerCase() : null;
+                },
+                // Toloka doesn't have clear media type detection
+                mediaType: () => null
+            }
+        }
+    };
+
+    /**
+     * Detect which site configuration to use based on current URL
+     * @returns {Object} The site configuration object
+     */
+    function detectSiteConfig() {
+        const url = window.location.href;
+        const hostname = window.location.hostname;
+
+        // Check each site config (except default)
+        for (const [key, config] of Object.entries(SITE_CONFIGS)) {
+            if (key === 'default') continue;
+            
+            for (const pattern of config.urlPatterns) {
+                if (pattern.test(url) || pattern.test(hostname)) {
+                    console.log(`[Groomarr] Detected site: ${config.name}`);
+                    return config;
+                }
+            }
+        }
+
+        // Return default config
+        console.log('[Groomarr] Using default UNIT3D configuration');
+        return SITE_CONFIGS.default;
+    }
+
+    /**
+     * Get a merged selector config - site-specific overrides default
+     * @param {Object} siteConfig - The detected site config
+     * @param {string} field - The field name to get selector for
+     * @returns {Object|null} The selector configuration
+     */
+    function getSelector(siteConfig, field) {
+        // Try site-specific first
+        if (siteConfig.selectors && siteConfig.selectors[field]) {
+            return siteConfig.selectors[field];
+        }
+        // Fall back to default
+        if (SITE_CONFIGS.default.selectors && SITE_CONFIGS.default.selectors[field]) {
+            return SITE_CONFIGS.default.selectors[field];
+        }
+        return null;
+    }
+
+    /**
+     * Get transform function for a field
+     * @param {Object} siteConfig - The detected site config
+     * @param {string} field - The field name
+     * @returns {Function|null} Transform function or null
+     */
+    function getTransform(siteConfig, field) {
+        // Try site-specific first
+        if (siteConfig.transforms && siteConfig.transforms[field]) {
+            return siteConfig.transforms[field];
+        }
+        // Fall back to default
+        if (SITE_CONFIGS.default.transforms && SITE_CONFIGS.default.transforms[field]) {
+            return SITE_CONFIGS.default.transforms[field];
+        }
+        return null;
+    }
+
+    /**
+     * Extract value using selector configuration
+     * @param {Object} selectorConfig - The selector configuration
+     * @returns {string|null} Extracted value
+     */
+    function extractWithSelector(selectorConfig) {
+        if (!selectorConfig) return null;
+
+        let value = null;
+
+        switch (selectorConfig.type) {
+            case 'xpath': {
+                const element = document.evaluate(
+                    selectorConfig.path,
+                    document,
+                    null,
+                    XPathResult.FIRST_ORDERED_NODE_TYPE,
+                    null
+                ).singleNodeValue;
+                
+                if (element) {
+                    if (selectorConfig.attribute) {
+                        value = element.getAttribute(selectorConfig.attribute);
+                    } else {
+                        value = element.textContent;
+                    }
+                }
+                break;
+            }
+            case 'css': {
+                const element = document.querySelector(selectorConfig.selector);
+                if (element) {
+                    if (selectorConfig.attribute) {
+                        value = element.getAttribute(selectorConfig.attribute);
+                    } else if (selectorConfig.valueIfFound) {
+                        value = selectorConfig.valueIfFound;
+                    } else {
+                        value = element.textContent;
+                    }
+                }
+                break;
+            }
+            case 'css-multi': {
+                const elements = document.querySelectorAll(selectorConfig.selector);
+                const values = new Set();
+                elements.forEach(el => {
+                    const val = selectorConfig.attribute 
+                        ? el.getAttribute(selectorConfig.attribute)
+                        : el.textContent;
+                    if (val) values.add(val.trim());
+                });
+                return Array.from(values);
+            }
+            case 'regex': {
+                const text = document.body.innerText;
+                const match = text.match(selectorConfig.pattern);
+                if (match && selectorConfig.group !== undefined) {
+                    value = match[selectorConfig.group];
+                }
+                break;
+            }
+        }
+
+        // Try fallback if no value found
+        if (!value && selectorConfig.fallback) {
+            return extractWithSelector(selectorConfig.fallback);
+        }
+
+        return value ? (typeof value === 'string' ? value.trim() : value) : null;
+    }
 
     // ============================================================================
     // STYLES
@@ -1043,8 +1333,11 @@
 
     /**
      * Main extraction function - gets all torrent data from page
+     * Uses site-specific selectors based on detected site configuration
      */
     function extractTorrentData() {
+        const siteConfig = detectSiteConfig();
+        
         const data = {
             hash: '',
             releaseName: '',
@@ -1055,22 +1348,31 @@
             releaseYear: null,
             audioLanguages: [],
             subtitleLanguages: [],
+            siteName: siteConfig.name,
             error: null
         };
 
         try {
-            // Info Hash - from dialog header
-            const hashElement = document.evaluate(
-                '/html/body/main/article/menu/li[4]/dialog/header/div/div',
-                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
-            ).singleNodeValue;
-
-            if (hashElement) {
-                const hashText = hashElement.textContent || '';
-                const hashMatch = hashText.match(/[a-fA-F0-9]{40}/);
+            // ===== Hash Extraction =====
+            const hashSelector = getSelector(siteConfig, 'hash');
+            let hashValue = extractWithSelector(hashSelector);
+            
+            // Apply transform if exists (e.g., for toloka magnet link)
+            const hashTransform = getTransform(siteConfig, 'hash');
+            if (hashTransform && hashValue) {
+                hashValue = hashTransform(hashValue);
+            }
+            
+            // Extract 40-char hex hash if not already transformed
+            if (hashValue && !/^[a-f0-9]{40}$/i.test(hashValue)) {
+                const hashMatch = hashValue.match(/[a-fA-F0-9]{40}/);
                 if (hashMatch) {
-                    data.hash = hashMatch[0].toLowerCase();
+                    hashValue = hashMatch[0];
                 }
+            }
+            
+            if (hashValue) {
+                data.hash = hashValue.toLowerCase();
             }
 
             // Fallback: try to find hash in any element containing "Info Hash"
@@ -1082,65 +1384,83 @@
                 }
             }
 
-            // Release Name - from h1
-            const titleElement = document.evaluate(
-                '/html/body/main/article/h1',
-                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
-            ).singleNodeValue;
-
-            if (titleElement) {
-                data.releaseName = titleElement.textContent.trim();
+            // ===== Release Name Extraction =====
+            const releaseNameSelector = getSelector(siteConfig, 'releaseName');
+            let releaseName = extractWithSelector(releaseNameSelector);
+            
+            // Apply transform if exists (e.g., for toloka title stripping)
+            const releaseNameTransform = getTransform(siteConfig, 'releaseName');
+            if (releaseNameTransform && releaseName) {
+                releaseName = releaseNameTransform(releaseName);
+            }
+            
+            if (releaseName) {
+                data.releaseName = releaseName.trim();
             }
 
-            // Fallback: try main h1 (but not the localized one with year)
-            if (!data.releaseName) {
-                const h1 = document.querySelector('main article > h1');
-                if (h1) {
-                    data.releaseName = h1.textContent.trim();
-                }
+            // ===== Uploader/Release Group Extraction =====
+            const uploaderSelector = getSelector(siteConfig, 'uploader');
+            let uploader = extractWithSelector(uploaderSelector);
+            
+            // Apply transform if exists
+            const uploaderTransform = getTransform(siteConfig, 'uploader');
+            if (uploaderTransform && uploader) {
+                uploader = uploaderTransform(uploader);
+            }
+            
+            if (uploader) {
+                data.releaseGroup = uploader.trim();
             }
 
-            // Release Group - from uploader/group link or "Anonymous"
-            const uploaderLi = document.querySelector('li.torrent__uploader');
-            if (uploaderLi) {
-                // Look for user link - only exists for non-anonymous uploads
-                const userLink = uploaderLi.querySelector('a.user-tag__link');
-                if (userLink) {
-                    const groupName = userLink.textContent.trim();
-                    if (groupName) {
-                        data.releaseGroup = groupName;
-                    }
-                } else {
-                    // Anonymous upload - check for the anonymous span
-                    const anonSpan = uploaderLi.querySelector('span.fa-eye-slash');
-                    if (anonSpan) {
-                        data.releaseGroup = 'Anonymous';
-                    }
-                }
+            // ===== Media Type Extraction =====
+            const mediaTypeSelector = getSelector(siteConfig, 'mediaType');
+            let mediaType = extractWithSelector(mediaTypeSelector);
+            
+            // Apply transform if exists
+            const mediaTypeTransform = getTransform(siteConfig, 'mediaType');
+            if (mediaTypeTransform) {
+                mediaType = mediaTypeTransform(mediaType);
             }
-
-            // Type (TV/Movie)
-            const typeElement = document.evaluate(
-                '/html/body/main/article/ul/li[1]/a',
-                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
-            ).singleNodeValue;
-
-            if (typeElement) {
-                data.mediaType = typeElement.textContent.trim();
+            
+            if (mediaType) {
+                data.mediaType = mediaType.trim();
                 data.isTV = data.mediaType.toLowerCase() === 'tv';
             }
 
-            // Extract original year from localized title
-            data.originalYear = extractOriginalYear();
+            // ===== Original Year Extraction =====
+            const originalYearSelector = getSelector(siteConfig, 'originalYear');
+            let originalYearValue = extractWithSelector(originalYearSelector);
+            
+            // Apply transform (default extracts year from parentheses)
+            const originalYearTransform = getTransform(siteConfig, 'originalYear');
+            if (originalYearTransform && originalYearValue) {
+                data.originalYear = originalYearTransform(originalYearValue);
+            } else if (originalYearValue) {
+                // Try to extract year if no transform
+                const yearMatch = originalYearValue.match(/\((\d{4})\)/);
+                if (yearMatch) {
+                    data.originalYear = parseInt(yearMatch[1], 10);
+                }
+            }
 
             // Extract year from release name
             if (data.releaseName) {
                 data.releaseYear = extractYearFromReleaseName(data.releaseName);
             }
 
-            // Extract audio and subtitle languages from mediainfo
-            data.audioLanguages = extractAudioLanguages();
-            data.subtitleLanguages = extractSubtitleLanguages();
+            // ===== Audio Languages Extraction =====
+            const audioSelector = getSelector(siteConfig, 'audioLanguages');
+            const audioLangs = extractWithSelector(audioSelector);
+            if (Array.isArray(audioLangs)) {
+                data.audioLanguages = audioLangs.map(cleanLanguageName);
+            }
+
+            // ===== Subtitle Languages Extraction =====
+            const subsSelector = getSelector(siteConfig, 'subtitleLanguages');
+            const subsLangs = extractWithSelector(subsSelector);
+            if (Array.isArray(subsLangs)) {
+                data.subtitleLanguages = subsLangs.map(cleanLanguageName);
+            }
 
             // Validation - only error if release name is missing (hash can be entered manually)
             if (!data.releaseName) {
@@ -1149,8 +1469,10 @@
 
         } catch (e) {
             data.error = `Extraction error: ${e.message}`;
+            console.error('[Groomarr] Extraction error:', e);
         }
 
+        console.log('[Groomarr] Extracted data:', data);
         return data;
     }
 
@@ -1366,23 +1688,35 @@
 
     /**
      * Extract torrent ID from current URL
-     * Supports both full URL and path patterns like /torrents/342558
+     * Uses site-specific patterns to handle different URL formats
      * Returns the numeric ID or null if not found
      */
     function extractTorrentIdFromUrl() {
         const url = window.location.href;
         const pathname = window.location.pathname;
+        const siteConfig = detectSiteConfig();
         
-        // Try to match /torrents/{ID} pattern
-        const match = pathname.match(/\/torrents\/(\d+)/);
-        if (match) {
-            return match[1];
+        // Use site-specific pattern if available
+        if (siteConfig.torrentIdPattern) {
+            const match = url.match(siteConfig.torrentIdPattern) || pathname.match(siteConfig.torrentIdPattern);
+            if (match) {
+                // Return first non-undefined capture group
+                for (let i = 1; i < match.length; i++) {
+                    if (match[i]) return match[i];
+                }
+            }
         }
         
-        // Fallback: try full URL pattern
-        const urlMatch = url.match(/\/torrents\/(\d+)/);
-        if (urlMatch) {
-            return urlMatch[1];
+        // Fallback: try common /torrents/{ID} pattern
+        const defaultMatch = pathname.match(/\/torrents\/(\d+)/) || url.match(/\/torrents\/(\d+)/);
+        if (defaultMatch) {
+            return defaultMatch[1];
+        }
+        
+        // Fallback: try /t{ID} pattern (for toloka-style URLs)
+        const tMatch = pathname.match(/\/t(\d+)/);
+        if (tMatch) {
+            return tMatch[1];
         }
         
         return null;
@@ -1595,10 +1929,11 @@
                             `}
 
                             <div class="groomarr-info">
-                                <div class="groomarr-info-label">Media Type</div>
+                                <div class="groomarr-info-label">Site / Media Type</div>
                                 <div class="groomarr-info-value">
-                                    ${torrentData.mediaType || 'Unknown'}
-                                    ${torrentData.releaseGroup ? `• Group: ${torrentData.releaseGroup}` : ''}
+                                    <span style="color: #60a5fa;">${torrentData.siteName || 'Unknown Site'}</span>
+                                    ${torrentData.mediaType ? ` • ${torrentData.mediaType}` : ''}
+                                    ${torrentData.releaseGroup ? ` • Group: ${torrentData.releaseGroup}` : ''}
                                     ${yearInfo ? `<br><span class="small">${yearInfo}</span>` : ''}
                                 </div>
                             </div>
@@ -2226,13 +2561,35 @@
     // INITIALIZATION
     // ============================================================================
 
+    /**
+     * Check if current page is a valid torrent page for any configured site
+     * @returns {boolean} True if this is a torrent detail page
+     */
+    function isValidTorrentPage() {
+        const url = window.location.href;
+        const pathname = window.location.pathname;
+        
+        // Check against all site configs
+        for (const [key, config] of Object.entries(SITE_CONFIGS)) {
+            for (const pattern of config.urlPatterns) {
+                if (pattern.test(url) || pattern.test(pathname)) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+
     function init() {
         // Check if we're on a torrent page
-        if (!window.location.pathname.match(/^\/torrents\/\d+/)) {
+        if (!isValidTorrentPage()) {
+            console.log('[Groomarr] Not a torrent page, skipping initialization');
             return;
         }
 
-        console.log('[Groomarr] Initializing on torrent page...');
+        const siteConfig = detectSiteConfig();
+        console.log(`[Groomarr] Initializing on ${siteConfig.name} torrent page...`);
 
         // Register menu command for settings
         GM_registerMenuCommand('⚙️ Groomarr Settings', showSettingsDialog);
