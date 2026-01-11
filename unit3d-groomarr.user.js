@@ -196,16 +196,46 @@
                 }
             },
             transforms: {
-                // Extract title after "/" - takes the part after the last "/"
-                // Example: "7 насінин / 7 seeds (2019) WEBDL 720p" -> "7 seeds (2019) WEBDL 720p"
+                // Clean and normalize release name for toloka
+                // 1. Extract title after "/" - takes the part after the first "/"
+                // 2. Remove any remaining "/" characters (path separators)
+                // 3. Replace season indicators like "(Season 1)", "(сезон 2)", "(2 сезон)", "(1 Season)" to "S0X"
+                // 4. Remove parentheses from year, so "(2024)" becomes "2024"
+                // Example: "7 насінин / Natsume Yuujinchou (Season 7) (2024)" -> "Natsume Yuujinchou S07 2024"
                 releaseName: (text) => {
                     if (!text) return text;
-                    const parts = text.split('/');
+                    let result = text.trim();
+                    
+                    // 1. Extract title after first "/" (keep existing logic)
+                    const parts = result.split('/');
                     if (parts.length > 1) {
-                        // Take everything after the last "/" and trim
-                        return parts.slice(1).join('/').trim();
+                        // Take everything after the first "/" and join
+                        result = parts.slice(1).join('/').trim();
                     }
-                    return text.trim();
+                    
+                    // 2. Remove any remaining "/" characters (replace with space to avoid word concatenation)
+                    result = result.replace(/\//g, ' ');
+                    
+                    // 3. Replace season patterns with S0X format
+                    // Patterns: (Season X), (сезон X), (X сезон), (X Season), etc.
+                    // Case-insensitive matching
+                    result = result.replace(/\((\s*)(?:Season|сезон)(\s+)(\d+)(\s*)\)/gi, (match, p1, p2, seasonNum) => {
+                        const num = parseInt(seasonNum, 10);
+                        return ` S${String(num).padStart(2, '0')} `;
+                    });
+                    // Handle "(X сезон)" or "(X Season)" patterns (number before season word)
+                    result = result.replace(/\((\s*)(\d+)(\s+)(?:сезон|Season)(\s*)\)/gi, (match, p1, seasonNum, p3, p4) => {
+                        const num = parseInt(seasonNum, 10);
+                        return ` S${String(num).padStart(2, '0')} `;
+                    });
+                    
+                    // 4. Remove parentheses from year pattern (YYYY)
+                    result = result.replace(/\((\d{4})\)/g, ' $1 ');
+                    
+                    // Clean up multiple spaces
+                    result = result.replace(/\s+/g, ' ').trim();
+                    
+                    return result;
                 },
                 // Extract hash from magnet link href
                 // Example: "magnet:?xt=urn:btih:9b7ca33b..." -> "9b7ca33b..."
