@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Groomarr UNIT3D Helperer
 // @namespace    https://github.com/maksii/Groomarr
-// @version      1.1.0
+// @version      1.1.1
 // @description  Rename torrents in qBittorrent via Groomarr manual endpoint from UNIT3D torrent pages
 // @author       maksii
 // @match        *://*/torrents/*
@@ -256,6 +256,46 @@
 
         .groomarr-input::placeholder {
             color: #4a5568;
+        }
+
+        /* Identify button container */
+        .groomarr-hash-identify {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .groomarr-identify-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .groomarr-identify-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .groomarr-identify-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .groomarr-identify-btn svg {
+            width: 14px;
+            height: 14px;
         }
 
         /* Select dropdown */
@@ -1324,6 +1364,76 @@
         });
     }
 
+    /**
+     * Extract torrent ID from current URL
+     * Supports both full URL and path patterns like /torrents/342558
+     * Returns the numeric ID or null if not found
+     */
+    function extractTorrentIdFromUrl() {
+        const url = window.location.href;
+        const pathname = window.location.pathname;
+        
+        // Try to match /torrents/{ID} pattern
+        const match = pathname.match(/\/torrents\/(\d+)/);
+        if (match) {
+            return match[1];
+        }
+        
+        // Fallback: try full URL pattern
+        const urlMatch = url.match(/\/torrents\/(\d+)/);
+        if (urlMatch) {
+            return urlMatch[1];
+        }
+        
+        return null;
+    }
+
+    /**
+     * Find torrent hash by torrent ID using /find/torrent endpoint
+     * @param {string} torrentId - Torrent ID (can be numeric ID or full URL)
+     * @param {string} url - Groomarr API base URL
+     * @param {function} callback - Callback function(err, result)
+     */
+    function findTorrentHash(torrentId, url, callback) {
+        GM_xmlhttpRequest({
+            method: 'POST',
+            url: `${url}/find/torrent`,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            data: JSON.stringify({
+                torrent_id: torrentId
+            }),
+            timeout: 15000,
+            onload: function(response) {
+                try {
+                    const data = JSON.parse(response.responseText);
+                    if (response.status >= 200 && response.status < 300) {
+                        if (data.status === 'found' && data.torrent_hash) {
+                            callback(null, data);
+                        } else if (data.status === 'not_found') {
+                            callback(new Error(data.reason || 'Torrent not found in qBittorrent'), data);
+                        } else if (data.status === 'error') {
+                            callback(new Error(data.reason || 'Invalid torrent ID'), data);
+                        } else {
+                            callback(new Error(data.reason || 'Unknown response status'), data);
+                        }
+                    } else {
+                        callback(new Error(data.reason || `HTTP ${response.status}`), data);
+                    }
+                } catch (e) {
+                    callback(new Error('Invalid response from server'), null);
+                }
+            },
+            onerror: function(error) {
+                callback(new Error('Failed to connect to Groomarr'), null);
+            },
+            ontimeout: function() {
+                callback(new Error('Request timeout'), null);
+            }
+        });
+    }
+
     // ============================================================================
     // UI COMPONENTS
     // ============================================================================
@@ -1466,8 +1576,17 @@
                             ` : `
                                 <div class="groomarr-info" style="border-left: 3px solid #fbbf24;">
                                     <div class="groomarr-info-label">Torrent Hash</div>
-                                    <div class="groomarr-info-value" style="color: #fbbf24; font-size: 12px; margin-bottom: 8px;">
-                                        ⚠️ Hash not detected (some sites hide it for security)
+                                    <div class="groomarr-hash-identify">
+                                        <div class="groomarr-info-value" style="color: #fbbf24; font-size: 12px; flex: 1;">
+                                            ⚠️ Hash not detected (some sites hide it for security)
+                                        </div>
+                                        <button class="groomarr-identify-btn" id="groomarr-identify-hash" title="Find hash from qBittorrent">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <circle cx="11" cy="11" r="8"/>
+                                                <path d="m21 21-4.35-4.35"/>
+                                            </svg>
+                                            Identify
+                                        </button>
                                     </div>
                                     <input type="text" class="groomarr-input" id="groomarr-manual-hash" 
                                         placeholder="Paste torrent hash here (40 hex characters)..." 
@@ -1825,6 +1944,48 @@
                 document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
             });
         });
+
+        // Identify hash button
+        const identifyBtn = document.getElementById('groomarr-identify-hash');
+        if (identifyBtn) {
+            identifyBtn.addEventListener('click', () => {
+                const config = getConfig();
+                const torrentId = extractTorrentIdFromUrl();
+                const hashInput = document.getElementById('groomarr-manual-hash');
+
+                if (!torrentId) {
+                    showToast('Could not extract torrent ID from URL', 'error');
+                    return;
+                }
+
+                identifyBtn.disabled = true;
+                identifyBtn.innerHTML = '<div class="groomarr-spinner"></div> Finding...';
+
+                findTorrentHash(torrentId, config.groomarrUrl, (err, result) => {
+                    identifyBtn.disabled = false;
+                    identifyBtn.innerHTML = `
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/>
+                            <path d="m21 21-4.35-4.35"/>
+                        </svg>
+                        Identify
+                    `;
+
+                    if (err) {
+                        showToast(`Failed to find hash: ${err.message}`, 'error');
+                    } else if (result && result.torrent_hash) {
+                        if (hashInput) {
+                            hashInput.value = result.torrent_hash;
+                            showToast('Hash found and populated!', 'success');
+                        } else {
+                            showToast('Hash found, but input field not available', 'error');
+                        }
+                    } else {
+                        showToast('Hash not found in qBittorrent', 'error');
+                    }
+                });
+            });
+        }
 
         // Helper function to get hash (used by both preview and rename)
         function getHashValue() {
