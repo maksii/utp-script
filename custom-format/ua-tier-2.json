@@ -523,6 +523,41 @@
       "fields": {
         "value": "(?i)\\bparabola76\\b"
       }
+    },
+    {
+      "name": "AMA",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bAMA\\b"
+      }
+    },
+    {
+      "name": "AMA",
+      "implementation": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bAMA\\b"
+      }
+    },    {
+      "name": "SPiLNO",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bSPiLNO\\b"
+      }
+    },
+    {
+      "name": "SPiLNO",
+      "implementation": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bSPiLNO\\b"
+      }
     }
   ]
 }

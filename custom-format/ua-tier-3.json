@@ -1765,6 +1765,60 @@
       "fields": {
         "value": "(?i)\\bIpod9481\\b"
       }
+    },
+    {
+      "name": "vasenka",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bvasenka\\b"
+      }
+    },
+    {
+      "name": "vasenka",
+      "implementation": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bvasenka\\b"
+      }
+    },
+    {
+      "name": "NIGHTMARE",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bNIGHTMARE\\b"
+      }
+    },
+    {
+      "name": "NIGHTMARE",
+      "implementation": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bNIGHTMARE\\b"
+      }
+    },
+    {
+      "name": "InariDub",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bInariDub\\b"
+      }
+    },
+    {
+      "name": "InariDub",
+      "implementation": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bInariDub\\b"
+      }
     }
   ]
 }
