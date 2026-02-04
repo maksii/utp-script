@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Toloka — Fill form from folder (meta.json)
-// @version      1.1.1
+// @version      1.3.0
 // @description  Populate Toloka release form from folder containing meta.json (Upload Assistant output). Use with release_toloka1.sh for final BBCode.
 // @match        https://toloka.to/release.php*
 // @grant        none
@@ -112,8 +112,8 @@
     function getImdbUrl(meta) {
         const info = meta.imdb_info;
         if (info && info.imdb_url) return info.imdb_url;
-        const id = meta.imdb_id;
-        if (id != null) return 'https://www.imdb.com/title/tt' + String(id).replace(/^tt/i, '') + '/';
+        const id = meta.imdb_id != null ? meta.imdb_id : meta.imdb;
+        if (id != null && id !== '') return 'https://www.imdb.com/title/tt' + String(id).replace(/^tt/i, '') + '/';
         return '';
     }
 
@@ -168,13 +168,32 @@
         }).filter(Boolean).join(' ');
     }
 
+    // For series/anime: episode duration (hh:mm or mm:ss) and episode count from meta
+    function getEpisodeDurationAndCount(meta) {
+        const tracks = getTracks(meta);
+        const general = tracks.general;
+        let durationStr = '';
+        let countStr = '';
+        if (general && general.Duration) {
+            const sec = parseFloat(general.Duration);
+            durationStr = durationFromSeconds(sec);
+        }
+        const episode = meta.episode;
+        if (episode != null && episode !== '') {
+            countStr = String(episode);
+        } else if (Array.isArray(meta.filelist) && meta.filelist.length > 1) {
+            countStr = String(meta.filelist.length);
+        }
+        return { durationStr, countStr };
+    }
+
     // ——— TMDB: fetch Ukrainian (uk-UA) data, fallback to en-US for empty fields (movies + series)
     async function fetchTmdbData(apiKey, meta) {
         const key = (apiKey || '').trim();
         if (!key) return null;
-        const imdbId = meta.imdb_id != null ? meta.imdb_id : (meta.imdb_info && meta.imdb_info.imdbID);
-        const imdbStr = imdbId != null ? ('tt' + String(imdbId).replace(/^tt/i, '')) : '';
-        let tmdbId = meta.tmdb_id;
+        const imdbId = meta.imdb_id != null ? meta.imdb_id : (meta.imdb_info && meta.imdb_info.imdbID) || meta.imdb;
+        const imdbStr = imdbId != null && imdbId !== '' ? ('tt' + String(imdbId).replace(/^tt/i, '')) : '';
+        let tmdbId = meta.tmdb_id != null ? meta.tmdb_id : meta.tmdb;
         let type = (meta.tmdb_type || meta.category || '').toLowerCase();
 
         if (!tmdbId && imdbStr) {
@@ -206,8 +225,8 @@
             return null;
         }
 
-        const langUk = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${encodeURIComponent(key)}&append_to_response=credits&language=uk-UA`;
-        const langEn = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${encodeURIComponent(key)}&append_to_response=credits&language=en-US`;
+        const langUk = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${encodeURIComponent(key)}&append_to_response=credits,alternative_titles&language=uk-UA`;
+        const langEn = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${encodeURIComponent(key)}&append_to_response=credits,alternative_titles&language=en-US`;
         let uk, en;
         try {
             uk = await fetch(langUk).then(r => r.ok ? r.json() : null);
@@ -222,9 +241,29 @@
         const titleField = type === 'tv' ? 'name' : 'title';
         const originalField = type === 'tv' ? 'original_name' : 'original_title';
         const dateField = type === 'tv' ? 'first_air_date' : 'release_date';
-        const titleUk = (j[titleField] || '').trim();
-        const originalTitle = (j[originalField] || '').trim();
+        const mainTitleUk = (j[titleField] || '').trim();
+        let originalTitle = (j[originalField] || '').trim();
         const year = (j[dateField] || '').slice(0, 4);
+
+        const altList = j.alternative_titles && (j.alternative_titles.titles || j.alternative_titles.results);
+        const hasJapaneseChars = (s) => /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(s);
+        const ukTitles = [];
+        if (mainTitleUk) ukTitles.push(mainTitleUk);
+        if (Array.isArray(altList)) {
+            for (const item of altList) {
+                const code = (item.iso_3166_1 || '').toUpperCase();
+                const t = (item.title || '').trim();
+                if (code === 'UA' && t && !ukTitles.includes(t)) ukTitles.push(t);
+            }
+        }
+        const titleUk = ukTitles.join(' / ');
+        if (hasJapaneseChars(originalTitle) && Array.isArray(altList)) {
+            const firstRomaji = altList.find(item => {
+                const t = (item.title || '').trim();
+                return t && !hasJapaneseChars(t);
+            });
+            if (firstRomaji && firstRomaji.title) originalTitle = firstRomaji.title.trim();
+        }
         let overview = (j.overview || '').trim();
         if (!overview && en) overview = (en.overview || '').trim();
 
@@ -282,7 +321,11 @@
     const AUDIO_LANG_MAP = { uk: '1', Ukrainian: '1', en: '2', English: '2', fr: '9', French: '9', ru: '8', Russian: '8', de: '6', German: '6', it: '3', Italian: '3', zh: '4', Chinese: '4', ko: '5', Korean: '5', pl: '7', Polish: '7', fi: '10', Finnish: '10', cs: '11', Czech: '11', ja: '12', Japanese: '12' };
     function audioLangToSelect(lang) {
         const n = safeStr(lang).trim();
-        return AUDIO_LANG_MAP[n] || AUDIO_LANG_MAP[n.toLowerCase()] || '0';
+        let v = AUDIO_LANG_MAP[n] || AUDIO_LANG_MAP[n.toLowerCase()];
+        if (v) return v;
+        const firstWord = n.split(/[\s(]+/)[0];
+        if (firstWord) v = AUDIO_LANG_MAP[firstWord] || AUDIO_LANG_MAP[firstWord.toLowerCase()];
+        return v || '0';
     }
 
     // f19: 1=оригінал, 2=професійний дубльований, 3=багатоголосий закадровий, 4=двоголосий закадровий, 5=одноголосий закадровий, 6="гоблінський"
@@ -369,6 +412,7 @@
     }
 
     function populateForm(form, meta) {
+        const formType = getFormType();
         const basename = getBasename(meta);
         const quality = qualityFromBasename(basename);
         const dubType = dubTypeFromBasename(basename);
@@ -387,63 +431,160 @@
 
         const subject = [title, originalTitle].filter(Boolean).join(' / ') + (year ? ` (${year}) ` : ' ') + quality.label + ' ' + resolution + ' ' + titleSuffix;
         setField(form, 'subject', subject.trim());
-        setField(form, 'f31[]', '18');   // Джерело: Інше
-        setField(form, 'f32[]', '14');   // спільно з: Інше
-        setField(form, 'f34', '11');     // Особиста оцінка: 0 - не дивився
-        setField(form, 'f29', getScreenshotsBBCode(meta));  // Скріншоти
 
-        setField(form, 'f1', getGenres(meta));
-        setField(form, 'f2', getCountries(meta));
         const imdbUrl = getImdbUrl(meta);
-        setField(form, 'f4[]', imdbUrl);
-        setField(form, 'f6', getCompanies(meta));
-        setField(form, 'f7', getDirectors(meta));
-        setField(form, 'f8', getCast(meta));
-        setField(form, 'f9', getOverview(meta));
+        const screenshots = getScreenshotsBBCode(meta);
 
-        if (tracks.general && tracks.general.Duration) {
-            const sec = parseFloat(tracks.general.Duration);
-            setField(form, 'f10', durationFromSeconds(sec));
+        if (formType === 'main') {
+            // ——— video_main (movies)
+            setField(form, 'f31[]', '18');
+            setField(form, 'f32[]', '14');
+            setField(form, 'f34', '11');
+            setField(form, 'f29', screenshots);
+            setField(form, 'f1', getGenres(meta));
+            setField(form, 'f2', getCountries(meta));
+            setField(form, 'f4[]', imdbUrl);
+            setField(form, 'f6', getCompanies(meta));
+            setField(form, 'f7', getDirectors(meta));
+            setField(form, 'f8', getCast(meta));
+            setField(form, 'f9', getOverview(meta));
+            if (tracks.general && tracks.general.Duration) {
+                const sec = parseFloat(tracks.general.Duration);
+                setField(form, 'f10', durationFromSeconds(sec));
+            }
+            setField(form, 'f11', quality.value);
+            if (tracks.video) {
+                const v = tracks.video;
+                const codec = videoCodecToSelect(v.Format);
+                const res = v.Width && v.Height ? `${v.Width}x${v.Height}` : '';
+                const bitrate = (v.BitRate && Number(v.BitRate) > 0) ? (Number(v.BitRate) / 1e6).toFixed(1) : '';
+                setFieldByIndex(form, 'f13[]', 0, codec);
+                setFieldByIndex(form, 'f14[]', 0, res);
+                setFieldByIndex(form, 'f15[]', 0, bitrate ? bitrate + ' мб/с' : '');
+            }
+            ensureRows(form, 'select[name="f18[]"]', tracks.audio.length);
+            tracks.audio.forEach((a, i) => {
+                const lang = safeStr(a.Language);
+                const ch = a.Channels;
+                const fmt = safeStr(a.Format_Commercial_IfAny || a.Format);
+                const bitK = (a.BitRate && Number(a.BitRate) > 0) ? Math.round(Number(a.BitRate) / 1000) : 'VBR';
+                setFieldByIndex(form, 'f18[]', i, audioLangToSelect(lang));
+                setFieldByIndex(form, 'f19[]', i, audioTypeToSelect(lang, dubType));
+                setFieldByIndex(form, 'f20[]', i, audioCodecToSelect(fmt, ch));
+                setFieldByIndex(form, 'f21[]', i, bitK + (bitK === 'VBR' ? '' : ' кб/с'));
+            });
+            setField(form, 'f23', '45');
+            const fullTextTracks = tracks.text.filter(tr => tr.Forced !== 'Yes');
+            const textToFill = fullTextTracks.length ? fullTextTracks : tracks.text;
+            ensureRows(form, 'select[name="f25[]"]', textToFill.length);
+            textToFill.forEach((tr, i) => {
+                setFieldByIndex(form, 'f25[]', i, subLangToSelect(tr.Language));
+                setFieldByIndex(form, 'f26[]', i, subTypeToSelect(tr.Format));
+                setFieldByIndex(form, 'f27[]', i, subFormatToSelect(tr.Format));
+            });
+            return;
         }
 
-        setField(form, 'f11', quality.value);
-
-        // Video: first track
-        if (tracks.video) {
-            const v = tracks.video;
-            const codec = videoCodecToSelect(v.Format);
-            const res = v.Width && v.Height ? `${v.Width}x${v.Height}` : '';
-            const bitrate = (v.BitRate && Number(v.BitRate) > 0) ? (Number(v.BitRate) / 1e6).toFixed(1) : '';
-            setFieldByIndex(form, 'f13[]', 0, codec);
-            setFieldByIndex(form, 'f14[]', 0, res);
-            setFieldByIndex(form, 'f15[]', 0, bitrate ? bitrate + ' мб/с' : '');
+        if (formType === 'series') {
+            // ——— video_series: f1,f2,f4[],f6,f7,f8,f9 same; f11[]/f12[] duration/count; f14 list; f15 quality; f17-19 video; f22-25 audio; f27 dubbing; f29-31 subs; f33 screenshots; f35[],f36[],f38
+            setField(form, 'f1', getGenres(meta));
+            setField(form, 'f2', getCountries(meta));
+            setField(form, 'f4[]', imdbUrl);
+            setField(form, 'f6', getCompanies(meta));
+            setField(form, 'f7', getDirectors(meta));
+            setField(form, 'f8', getCast(meta));
+            setField(form, 'f9', getOverview(meta));
+            const ep = getEpisodeDurationAndCount(meta);
+            setFieldByIndex(form, 'f11[]', 0, ep.durationStr);
+            setFieldByIndex(form, 'f12[]', 0, ep.countStr);
+            setField(form, 'f14', ''); // Перелік серій — leave for user
+            setField(form, 'f15', quality.value);
+            if (tracks.video) {
+                const v = tracks.video;
+                const codec = videoCodecToSelect(v.Format);
+                const res = v.Width && v.Height ? `${v.Width}x${v.Height}` : '';
+                const bitrate = (v.BitRate && Number(v.BitRate) > 0) ? (Number(v.BitRate) / 1e6).toFixed(1) : '';
+                setFieldByIndex(form, 'f17[]', 0, codec);
+                setFieldByIndex(form, 'f18[]', 0, res);
+                setFieldByIndex(form, 'f19[]', 0, bitrate ? bitrate + ' мб/с' : '');
+            }
+            ensureRows(form, 'select[name="f22[]"]', tracks.audio.length);
+            tracks.audio.forEach((a, i) => {
+                const lang = safeStr(a.Language);
+                const ch = a.Channels;
+                const fmt = safeStr(a.Format_Commercial_IfAny || a.Format);
+                const bitK = (a.BitRate && Number(a.BitRate) > 0) ? Math.round(Number(a.BitRate) / 1000) : 'VBR';
+                setFieldByIndex(form, 'f22[]', i, audioLangToSelect(lang));
+                setFieldByIndex(form, 'f23[]', i, audioTypeToSelect(lang, dubType));
+                setFieldByIndex(form, 'f24[]', i, audioCodecToSelect(fmt, ch));
+                setFieldByIndex(form, 'f25[]', i, bitK + (bitK === 'VBR' ? '' : ' кб/с'));
+            });
+            setField(form, 'f27', '45');
+            const fullTextTracks = tracks.text.filter(tr => tr.Forced !== 'Yes');
+            const textToFill = fullTextTracks.length ? fullTextTracks : tracks.text;
+            ensureRows(form, 'select[name="f29[]"]', textToFill.length);
+            textToFill.forEach((tr, i) => {
+                setFieldByIndex(form, 'f29[]', i, subLangToSelect(tr.Language));
+                setFieldByIndex(form, 'f30[]', i, subTypeToSelect(tr.Format));
+                setFieldByIndex(form, 'f31[]', i, subFormatToSelect(tr.Format));
+            });
+            setField(form, 'f33', screenshots);
+            setField(form, 'f35[]', '18');
+            setField(form, 'f36[]', '14');
+            setField(form, 'f38', '11');
+            return;
         }
 
-        // Audio: ensure enough rows by cloning, then fill all tracks (e.g. 1 Ukr + 2 Eng + 3 Fr = 6)
-        ensureRows(form, 'select[name="f18[]"]', tracks.audio.length);
-        tracks.audio.forEach((a, i) => {
-            const lang = safeStr(a.Language);
-            const ch = a.Channels;
-            const fmt = safeStr(a.Format_Commercial_IfAny || a.Format);
-            const bitK = (a.BitRate && Number(a.BitRate) > 0) ? Math.round(Number(a.BitRate) / 1000) : 'VBR';
-            setFieldByIndex(form, 'f18[]', i, audioLangToSelect(lang));
-            setFieldByIndex(form, 'f19[]', i, audioTypeToSelect(lang, dubType));
-            setFieldByIndex(form, 'f20[]', i, audioCodecToSelect(fmt, ch));
-            setFieldByIndex(form, 'f21[]', i, bitK + (bitK === 'VBR' ? '' : ' кб/с'));
-        });
-
-        // Dubbing source f23: 45 = Оригінальний_Blu-Ray, 44 = Оригінальний_DVD, 46 = Любительський переклад
-        setField(form, 'f23', '45'); // default Blu-Ray
-
-        // Subtitles: ensure enough rows by cloning, then fill all tracks (e.g. 3 Eng + 4 Fr = 7)
-        const fullTextTracks = tracks.text.filter(t => t.Forced !== 'Yes');
-        const textToFill = fullTextTracks.length ? fullTextTracks : tracks.text;
-        ensureRows(form, 'select[name="f25[]"]', textToFill.length);
-        textToFill.forEach((t, i) => {
-            setFieldByIndex(form, 'f25[]', i, subLangToSelect(t.Language));
-            setFieldByIndex(form, 'f26[]', i, subTypeToSelect(t.Format));
-            setFieldByIndex(form, 'f27[]', i, subFormatToSelect(t.Format));
-        });
+        if (formType === 'anime') {
+            // ——— video_anime: f1,f2,f4[]; f7[],f8[] AniDB (leave empty); f10 companies, f11 directors, f12 cast, f13 overview; f15[],f16[] ep; f18 list; f19 quality; f21-23 video; f26-29 audio; f31 dubbing; f33-35 subs; f37 MediaInfo; f38 screenshots; f40[],f41[],f43
+            setField(form, 'f1', getGenres(meta));
+            setField(form, 'f2', getCountries(meta));
+            setField(form, 'f4[]', imdbUrl);
+            // f7[], f8[] — AniDB рейтинг / проголошувало: no standard in meta, leave empty
+            setField(form, 'f10', getCompanies(meta));
+            setField(form, 'f11', getDirectors(meta));
+            setField(form, 'f12', getCast(meta));
+            setField(form, 'f13', getOverview(meta));
+            const ep = getEpisodeDurationAndCount(meta);
+            setFieldByIndex(form, 'f15[]', 0, ep.durationStr);
+            setFieldByIndex(form, 'f16[]', 0, ep.countStr);
+            setField(form, 'f18', ''); // Перелік серій
+            setField(form, 'f19', quality.value);
+            if (tracks.video) {
+                const v = tracks.video;
+                const codec = videoCodecToSelect(v.Format);
+                const res = v.Width && v.Height ? `${v.Width}x${v.Height}` : '';
+                const bitrate = (v.BitRate && Number(v.BitRate) > 0) ? (Number(v.BitRate) / 1e6).toFixed(1) : '';
+                setFieldByIndex(form, 'f21[]', 0, codec);
+                setFieldByIndex(form, 'f22[]', 0, res);
+                setFieldByIndex(form, 'f23[]', 0, bitrate ? bitrate + ' мб/с' : '');
+            }
+            ensureRows(form, 'select[name="f26[]"]', tracks.audio.length);
+            tracks.audio.forEach((a, i) => {
+                const lang = safeStr(a.Language);
+                const ch = a.Channels;
+                const fmt = safeStr(a.Format_Commercial_IfAny || a.Format);
+                const bitK = (a.BitRate && Number(a.BitRate) > 0) ? Math.round(Number(a.BitRate) / 1000) : 'VBR';
+                setFieldByIndex(form, 'f26[]', i, audioLangToSelect(lang));
+                setFieldByIndex(form, 'f27[]', i, audioTypeToSelect(lang, dubType));
+                setFieldByIndex(form, 'f28[]', i, audioCodecToSelect(fmt, ch));
+                setFieldByIndex(form, 'f29[]', i, bitK + (bitK === 'VBR' ? '' : ' кб/с'));
+            });
+            setField(form, 'f31', '45');
+            const fullTextTracks = tracks.text.filter(tr => tr.Forced !== 'Yes');
+            const textToFill = fullTextTracks.length ? fullTextTracks : tracks.text;
+            ensureRows(form, 'select[name="f33[]"]', textToFill.length);
+            textToFill.forEach((tr, i) => {
+                setFieldByIndex(form, 'f33[]', i, subLangToSelect(tr.Language));
+                setFieldByIndex(form, 'f34[]', i, subTypeToSelect(tr.Format));
+                setFieldByIndex(form, 'f35[]', i, subFormatToSelect(tr.Format));
+            });
+            setField(form, 'f37', meta.mediainfo_raw || ''); // MediaInfo text if present in meta
+            setField(form, 'f38', screenshots);
+            setField(form, 'f40[]', '18');
+            setField(form, 'f41[]', '14');
+            setField(form, 'f43', '11');
+        }
     }
 
     function readMetaFromFile(file) {
@@ -457,6 +598,14 @@
 
     function findForm() {
         return document.querySelector('form[name="post"]') || document.querySelector('form[enctype="multipart/form-data"]');
+    }
+
+    // Detect Toloka form type from URL (video_main = movies, video_series, video_anime)
+    function getFormType() {
+        const what = (typeof location !== 'undefined' && location.search) ? new URLSearchParams(location.search).get('what') : '';
+        if (what === 'video_series') return 'series';
+        if (what === 'video_anime') return 'anime';
+        return 'main';
     }
 
     function injectUI() {
@@ -577,7 +726,7 @@
             try {
                 const meta = await readMetaFromFile(file);
                 const apiKey = (tmdbInput.value || getStoredTmdbKey() || '').trim();
-                if (apiKey && (meta.tmdb_id || meta.imdb_id || (meta.imdb_info && meta.imdb_info.imdbID))) {
+                if (apiKey && (meta.tmdb_id || meta.tmdb || meta.imdb_id || meta.imdb || (meta.imdb_info && meta.imdb_info.imdbID))) {
                     setStatus('Отримую дані TMDB (українською)…');
                     try {
                         const tmdbData = await fetchTmdbData(apiKey, meta);
