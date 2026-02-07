@@ -49,6 +49,7 @@
     SHOW_ICONS_WITHOUT_RELEASES: true, // Toggle to show icons even when no releases are found
     API_CACHE_EXPIRY: 30 * 60 * 1000, // Cache expiry time in milliseconds (30 minutes)
     ONLY_SEARCH_BY_BUTTON_PRESS: true, // When true, do not auto-search; require user click to load links
+    SKIP_CACHE_WHEN_BUTTON_PRESS: false, // When true, ignore API cache when button press is required
     USE_TRACKER_FAVICON: false, // When true, use https://<tracker-origin>/favicon.ico for tracker icons
   };
 
@@ -340,7 +341,7 @@
   // Create configuration UI
   async function showConfigUI() {
     const config = await loadConfig();
-    const { ENABLED_SITES, ICON_FONT_SIZE, ICON_IMAGE_SIZE, API_KEYS, SHOW_RELEASE_COUNT, ENABLE_API_SUPPORT, API_CACHE_EXPIRY, ONLY_SEARCH_BY_BUTTON_PRESS, USE_TRACKER_FAVICON } = config;
+    const { ENABLED_SITES, ICON_FONT_SIZE, ICON_IMAGE_SIZE, API_KEYS, SHOW_RELEASE_COUNT, ENABLE_API_SUPPORT, API_CACHE_EXPIRY, ONLY_SEARCH_BY_BUTTON_PRESS, SKIP_CACHE_WHEN_BUTTON_PRESS, USE_TRACKER_FAVICON } = config;
 
     // Load custom sites and group sites by type for better organization
     const customSites = await loadCustomSites();
@@ -357,6 +358,7 @@
     const enableApiSupport = config.ENABLE_API_SUPPORT === true ? "checked" : "";
     const showIconsWithoutReleases = config.SHOW_ICONS_WITHOUT_RELEASES !== false ? "checked" : "";
     const onlySearchChecked = config.ONLY_SEARCH_BY_BUTTON_PRESS !== false ? "checked" : "";
+    const skipCacheWhenButtonPressChecked = config.SKIP_CACHE_WHEN_BUTTON_PRESS === true ? "checked" : "";
     const useTrackerFaviconChecked = config.USE_TRACKER_FAVICON === true ? "checked" : "";
 
     // Define expected key order for trackers that require multiple credentials
@@ -441,6 +443,12 @@
             <label>
               <input type="checkbox" id="onlySearchByButton" ${onlySearchChecked}>
               Only search by button press (show generic icon until clicked)
+            </label>
+          </div>
+          <div style="margin-bottom: 10px; margin-left: 18px;">
+            <label>
+              <input type="checkbox" id="skipCacheWhenButtonPress" ${skipCacheWhenButtonPressChecked}>
+              Skip API cache when button press is required
             </label>
           </div>
           <div style="margin-bottom: 10px;">
@@ -537,7 +545,7 @@
     document
       .getElementById("saveConfigBtn")
       .addEventListener("click", async () => {
-        const checkboxes = configDiv.querySelectorAll('input[type="checkbox"]:not(#showReleaseCount):not(#enableApiSupport):not(#showIconsWithoutReleases):not(#onlySearchByButton):not(#useTrackerFavicon)');
+        const checkboxes = configDiv.querySelectorAll('input[type="checkbox"]:not(#showReleaseCount):not(#enableApiSupport):not(#showIconsWithoutReleases):not(#onlySearchByButton):not(#skipCacheWhenButtonPress):not(#useTrackerFavicon)');
         const newEnabledSites = Array.from(checkboxes)
           .filter((checkbox) => checkbox.checked)
           .map((checkbox) => checkbox.value);
@@ -608,6 +616,7 @@
         const enableApiSupport = document.getElementById('enableApiSupport').checked;
         const showIconsWithoutReleases = document.getElementById('showIconsWithoutReleases').checked;
         const onlySearchByButton = document.getElementById('onlySearchByButton').checked;
+        const skipCacheWhenButtonPress = document.getElementById('skipCacheWhenButtonPress').checked;
         const useTrackerFavicon = document.getElementById('useTrackerFavicon').checked;
 
         config.ENABLED_SITES = newEnabledSites;
@@ -617,6 +626,7 @@
         config.ENABLE_API_SUPPORT = enableApiSupport;
         config.SHOW_ICONS_WITHOUT_RELEASES = showIconsWithoutReleases;
         config.ONLY_SEARCH_BY_BUTTON_PRESS = onlySearchByButton;
+        config.SKIP_CACHE_WHEN_BUTTON_PRESS = skipCacheWhenButtonPress;
         config.USE_TRACKER_FAVICON = useTrackerFavicon;
 
         await saveConfig(config);
@@ -676,8 +686,16 @@
     const RUNTIME_SITES = Array.isArray(persistedCustomSites) && persistedCustomSites.length ? SITES.concat(persistedCustomSites) : SITES;
 
     // Cache management functions
+    function shouldBypassApiCache(cacheKey) {
+      if (!config.ONLY_SEARCH_BY_BUTTON_PRESS || !config.SKIP_CACHE_WHEN_BUTTON_PRESS) {
+        return false;
+      }
+      return typeof cacheKey === 'string' && cacheKey.startsWith('api_cache_');
+    }
+
     async function getCachedApiResponse(cacheKey) {
       try {
+        if (shouldBypassApiCache(cacheKey)) return null;
         const cachedData = await GM.getValue(cacheKey);
         if (!cachedData) return null;
 
@@ -703,6 +721,7 @@
 
     async function setCachedApiResponse(cacheKey, data) {
       try {
+        if (shouldBypassApiCache(cacheKey)) return;
         await GM.setValue(cacheKey, {
           timestamp: Date.now(),
           data: data
