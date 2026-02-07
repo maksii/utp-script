@@ -734,7 +734,7 @@
 
     // Special-case API handlers for known trackers with non-standard endpoints
     // Returns true if a handler started an async check (and will call resolve), false otherwise
-    function checkSpecificTrackerApi(site, imdbId, tmdbId, resolve) {
+    function checkSpecificTrackerApi(site, imdbId, tmdbId, tvdbId, titleNoYear, resolve) {
       try {
         const urlSample = (site.imdbSearchUrl || site.nameSearchUrl || "").toLowerCase();
         const tokenRaw = API_KEYS[site.name] || "";
@@ -746,18 +746,25 @@
             resolve({ hasReleases: true, count: 0, error: false });
             return true;
           }
+          const hasTvdb = Boolean(tvdbId);
+          const searchParams = hasTvdb
+            ? { tvdb: tvdbId }
+            : (titleNoYear ? { search: titleNoYear } : { search: site.name });
+          const resultsPerPage = hasTvdb ? 50 : 6;
+
           const postData = {
             jsonrpc: "2.0",
             id: Math.random().toString(36).substring(2, 10),
             method: "getTorrentsSearch",
             params: [
               tokens[0],
-              imdbId ? { imdb: imdbId.replace(/^tt/, '') } : { search: site.name },
-              50
+              searchParams,
+              resultsPerPage
             ]
           };
 
-          const cacheKey = `api_cache_BTN_${imdbId || tmdbId}`;
+          const cacheKeySuffix = tvdbId || (titleNoYear ? encodeURIComponent(titleNoYear) : '') || imdbId || tmdbId || 'unknown';
+          const cacheKey = `api_cache_BTN_${cacheKeySuffix}`;
           getCachedApiResponse(cacheKey).then(cached => {
             if (cached) return resolve(cached);
             GM.xmlHttpRequest({
@@ -768,8 +775,12 @@
               responseType: 'json',
               onload: function(resp) {
                 if (resp.status === 200 && resp.response) {
-                  const resultData = resp.response.result || [];
-                  const count = Array.isArray(resultData) ? resultData.length : 0;
+                  const resultData = resp.response.result || {};
+                  const reported = Number(resultData.results);
+                  const torrentCount = resultData.torrents && typeof resultData.torrents === 'object'
+                    ? Object.keys(resultData.torrents).length
+                    : 0;
+                  const count = Number.isFinite(reported) && reported >= 0 ? reported : torrentCount;
                   const out = { hasReleases: count > 0, count, error: false };
                   setCachedApiResponse(cacheKey, out);
                   resolve(out);
@@ -885,7 +896,7 @@
     }
 
     // Check for releases via API based on site type
-    async function checkReleasesViaApi(site, imdbId, tmdbId) {
+    async function checkReleasesViaApi(site, imdbId, tmdbId, tvdbId, titleNoYear) {
       return new Promise((resolve) => {
         // Skip API calls if API support is disabled
         if (!ENABLE_API_SUPPORT) {
@@ -900,7 +911,7 @@
 
         // For TRACKER sites that have an API key configured, try specific handlers first
         if (site.type === SITE_TYPES.TRACKER && API_KEYS[site.name]) {
-          const handled = checkSpecificTrackerApi(site, imdbId, tmdbId, resolve);
+          const handled = checkSpecificTrackerApi(site, imdbId, tmdbId, tvdbId, titleNoYear, resolve);
           if (handled) return; // specific handler will call resolve
           // Fallback to a generic filter endpoint if specific handler not available
           return checkGenericApiReleases(site, imdbId, tmdbId, resolve);
@@ -1161,7 +1172,7 @@
     }
 
     // New function to handle link preparation and collection
-    async function prepareLink(site, imdbId, tmdbId, mediaTitle) {
+    async function prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear) {
       let searchUrl = "";
       if (imdbId != "" && site.imdbSearchUrl != "") {
         searchUrl = site.imdbSearchUrl.replace("$Id", imdbId);
@@ -1221,7 +1232,7 @@
       // Check for releases on sites with API support if API key is available
       // Allow UNIT3D and TRACKER sites to use API checks when an API key is present
       if (site.type !== SITE_TYPES.STANDARD && site.type !== SITE_TYPES.INDEXER && API_KEYS[site.name]) {
-        const result = await checkReleasesViaApi(site, imdbId, tmdbId);
+        const result = await checkReleasesViaApi(site, imdbId, tmdbId, tvdbId, mediaTitleNoYear);
         if (result.hasReleases || config.SHOW_ICONS_WITHOUT_RELEASES) {
           return {
             site: site,
@@ -1313,7 +1324,7 @@
 
       let imdbId = "";
       let tmdbId = "";
-      //let tvdbId = '';
+      let tvdbId = "";
       let isMovie = "";
 
       if (document.querySelector(".meta__tmdb") !== null) {
@@ -1326,6 +1337,17 @@
       if (document.querySelector(".meta__imdb") !== null) {
         const imdbLi = document.querySelector(".meta__imdb");
         imdbId = imdbLi.children[0].href.split("/").pop();
+      }
+
+      if (document.querySelector(".meta__tvdb") !== null) {
+        const tvdbLi = document.querySelector(".meta__tvdb");
+        const tvdbLink = tvdbLi.querySelector("a");
+        if (tvdbLink && tvdbLink.href) {
+          const match = tvdbLink.href.match(/[?&]id=(\d+)/);
+          if (match) {
+            tvdbId = match[1];
+          }
+        }
       }
 
       if (document.querySelector(".meta__mal") !== null) {
@@ -1348,6 +1370,10 @@
       const mediaTitle = document.querySelector(".meta__title")
         ? document.querySelector(".meta__title").outerText
         : document.querySelector(".movie-heading a").outerText;
+
+      const mediaTitleNoYear = mediaTitle
+        ? mediaTitle.replace(/\(\d{4}\)/, " ").replace(/\s+/g, " ").trim()
+        : "";
 
       if (isMovie === "") {
         isMovie = document
@@ -1465,7 +1491,7 @@
             e.preventDefault();
             generic.remove();
 
-            const linkPromises = sitesToProcess.map(site => prepareLink(site, imdbId, tmdbId, mediaTitle));
+            const linkPromises = sitesToProcess.map(site => prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear));
             const preparedLinks = await Promise.all(linkPromises);
             const validLinks = preparedLinks.filter(link => link !== null);
             validLinks.sort((a, b) => {
@@ -1481,7 +1507,7 @@
 
         // Prepare all links (this creates an array of promises)
         const linkPromises = sitesToProcess.map(site =>
-          prepareLink(site, imdbId, tmdbId, mediaTitle)
+          prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear)
         );
 
         // Wait for all link preparations to complete
