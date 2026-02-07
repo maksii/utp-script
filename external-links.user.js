@@ -163,6 +163,16 @@
       type: SITE_TYPES.TRACKER,
     },
     {
+      name: "MoreThanTV",
+      icon: "fa-solid fa-tv",
+      imdbSearchUrl:
+        "https://www.morethantv.me/torrents.php?searchtext=$Id",
+      tmdbSearchUrl: "",
+      nameSearchUrl:
+        "https://www.morethantv.me/torrents.php?searchtext=$Id",
+      type: SITE_TYPES.TRACKER,
+    },
+    {
       name: "Anthelion",
       icon: "fa-solid fa-sun",
       imdbSearchUrl:
@@ -278,7 +288,7 @@
         imdbSearchUrl: 'https://cinematik.net/torrents?&imdbId=$Id&sortField=size',
         tmdbSearchUrl: 'https://cinematik.net/torrents?&tmdbId=$Id&sortField=size',
         nameSearchUrl: 'https://cinematik.net/torrents?&name=$Id&sortField=size',
-        type: SITE_TYPES.TRACKER,
+      type: SITE_TYPES.UNIT3D,
     },
     {
         name: 'HDBits',
@@ -414,10 +424,10 @@
         inputs = `\n                <input type="text" placeholder="BHD token" value="${tokenVal}" class="apiKey" data-site="${name}" data-key="token" style="width:100%; margin-top:4px;">\n`;
       } else if (lname.includes('btn') || lname.includes('broadcasthe')) {
         inputs = `\n                <input type="text" placeholder="BTN token" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="token" style="width:100%; margin-top:4px;">\n`;
-      } else if (lname.includes('anthelion') || lname.includes('ant')) {
-        inputs = `\n                <input type="text" placeholder="Anthelion API key" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="apikey" style="width:100%; margin-top:4px;">\n`;
       } else if (lname.includes('morethantv') || lname.includes('mtv')) {
         inputs = `\n                <input type="text" placeholder="MoreThanTV API key" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="apikey" style="width:100%; margin-top:4px;">\n`;
+      } else if (lname === 'anthelion' || lname.includes('anthelion')) {
+        inputs = `\n                <input type="text" placeholder="Anthelion API key" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="apikey" style="width:100%; margin-top:4px;">\n`;
       } else if (lname.includes('retroflix') || lname.includes('rtf')) {
         inputs = `\n                <input type="text" placeholder="RetroFlix API key (optional)" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="apikey" style="width:100%; margin-top:4px;">\n`;
       }
@@ -827,7 +837,7 @@
         }
 
         // ANT (Anthelion) - GET with apikey in query string
-        if (urlSample.includes('anthelion.me') || site.name.toLowerCase().includes('ant')) {
+        if (urlSample.includes('anthelion.me') || site.name.toLowerCase() === 'anthelion') {
           if (!tokens[0]) { resolve({ hasReleases: true, count: 0, error: false }); return true; }
           const imdbParam = imdbId ? imdbId.replace(/^tt/, '') : '';
           const apiUrl = `https://anthelion.me/api.php?apikey=${tokens[0]}&t=movie&imdbid=${imdbParam}&o=json`;
@@ -964,15 +974,28 @@
           const cacheKey = `api_cache_MTV_${imdbParam}`;
           getCachedApiResponse(cacheKey).then(cached => {
             if (cached) return resolve(cached);
-            GM.xmlHttpRequest({ method: 'GET', url: apiUrl, responseType: 'json', onload(resp) {
-              if (resp.status === 200 && resp.response) {
-                const text = resp.responseText || JSON.stringify(resp.response);
+            GM.xmlHttpRequest({ method: 'GET', url: apiUrl, responseType: 'text', onload(resp) {
+              if (resp.status === 200) {
+                const text = resp.responseText || resp.response || '';
                 const matches = (text.match(/<item\b/g) || []).length;
                 const count = matches;
                 const out = { hasReleases: count > 0, count, error: false };
                 setCachedApiResponse(cacheKey, out);
+                if (count === 0) {
+                  console.info('MTV API returned zero items', {
+                    imdbParam,
+                    responsePreview: text.slice(0, 500)
+                  });
+                }
                 resolve(out);
-              } else { resolve({ hasReleases: true, count: 0, error: true }); }
+              } else {
+                console.error('MTV API unexpected response', {
+                  status: resp.status,
+                  statusText: resp.statusText,
+                  responseText: (resp.responseText || resp.response || '').slice(0, 500)
+                });
+                resolve({ hasReleases: true, count: 0, error: true });
+              }
             }, onerror(err) { console.error('MTV API error', err); resolve({ hasReleases: true, count: 0, error: true }); } });
           });
           return true;
