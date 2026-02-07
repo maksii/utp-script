@@ -235,9 +235,9 @@
     {
       name: "ReelFlix",
       icon: "fa fa-video",
-      imdbSearchUrl: "https://reelflix.xyz/torrents?imdbId=$Id",
-      tmdbSearchUrl: "https://reelflix.xyz/torrents?tmdbId=$Id",
-      nameSearchUrl: "https://reelflix.xyz/torrents?name=$Id",
+      imdbSearchUrl: "https://reelflix.cc/torrents?imdbId=$Id",
+      tmdbSearchUrl: "https://reelflix.cc/torrents?tmdbId=$Id",
+      nameSearchUrl: "https://reelflix.cc/torrents?name=$Id",
       type: SITE_TYPES.UNIT3D,
     },
     {
