@@ -372,6 +372,8 @@
 
     // Define expected key order for trackers that require multiple credentials
     const TRACKER_KEY_ORDER = {
+      "HDB": ["username", "passkey"],
+      "HDBITS": ["username", "passkey"],
       "BHD": ["token"],
       "BTN": ["token"],
       "ANT": ["apikey"],
@@ -386,7 +388,16 @@
       // Default single input
       let inputs = `\n                <input type="text" placeholder="API Key / token" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="key" style="width:100%; margin-top:4px;">\n`;
 
-      if (lname.includes('bhd') || lname === 'beyond-hd' || name === 'BHD') {
+      if (lname.includes('hdb') || lname.includes('hdbits') || name === 'HDB') {
+        const raw = API_KEYS[name] || '';
+        const parts = raw.split('|').map(s => s.trim());
+        const usernameVal = parts[0] || '';
+        const passkeyVal = parts[1] || '';
+        inputs = `
+            <input type="text" placeholder="HDB username" value="${usernameVal}" class="apiKey" data-site="${name}" data-key="username" style="width:100%; margin-top:4px;">
+            <input type="text" placeholder="HDB passkey" value="${passkeyVal}" class="apiKey" data-site="${name}" data-key="passkey" style="width:100%; margin-top:4px;">
+    `;
+      } else if (lname.includes('bhd') || lname === 'beyond-hd' || name === 'BHD') {
         // BHD expects a single token (no rsskey)
         const tokenVal = API_KEYS[name] || '';
         inputs = `\n                <input type="text" placeholder="BHD token" value="${tokenVal}" class="apiKey" data-site="${name}" data-key="token" style="width:100%; margin-top:4px;">\n`;
@@ -827,6 +838,41 @@
                 resolve(out);
               } else { resolve({ hasReleases: true, count: 0, error: true }); }
             }, onerror(err) { console.error('ANT API error', err); resolve({ hasReleases: true, count: 0, error: true }); } });
+          });
+          return true;
+        }
+
+        // HDBits (HDB) - POST to /api/torrents with username/passkey
+        if (urlSample.includes('hdbits.org') || site.name.toLowerCase().includes('hdb')) {
+          if (!tokens[0] || !tokens[1]) { resolve({ hasReleases: true, count: 0, error: false }); return true; }
+          const imdbParam = imdbId ? imdbId.replace(/^tt/, '') : '';
+          const postUrl = 'https://hdbits.org/api/torrents';
+          const postData = {
+            username: tokens[0],
+            passkey: tokens[1],
+            imdb: { id: imdbParam }
+          };
+          const cacheKey = `api_cache_HDB_${imdbParam}`;
+          getCachedApiResponse(cacheKey).then(cached => {
+            if (cached) return resolve(cached);
+            GM.xmlHttpRequest({
+              method: 'POST',
+              url: postUrl,
+              data: JSON.stringify(postData),
+              headers: { 'Content-Type': 'application/json' },
+              responseType: 'json',
+              onload(resp) {
+                if (resp.status === 200 && resp.response) {
+                  const res = resp.response;
+                  const data = Array.isArray(res.data) ? res.data : [];
+                  const count = data.length;
+                  const out = { hasReleases: count > 0, count, error: false };
+                  setCachedApiResponse(cacheKey, out);
+                  resolve(out);
+                } else { resolve({ hasReleases: true, count: 0, error: true }); }
+              },
+              onerror(err) { console.error('HDB API error', err); resolve({ hasReleases: true, count: 0, error: true }); }
+            });
           });
           return true;
         }
