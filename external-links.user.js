@@ -374,6 +374,8 @@
     const TRACKER_KEY_ORDER = {
       "HDB": ["username", "passkey"],
       "HDBITS": ["username", "passkey"],
+      "PTP": ["apiuser", "apikey"],
+      "PASSTHEPOPCORN": ["apiuser", "apikey"],
       "BHD": ["token"],
       "BTN": ["token"],
       "ANT": ["apikey"],
@@ -388,7 +390,16 @@
       // Default single input
       let inputs = `\n                <input type="text" placeholder="API Key / token" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="key" style="width:100%; margin-top:4px;">\n`;
 
-      if (lname.includes('hdb') || lname.includes('hdbits') || name === 'HDB') {
+      if (lname.includes('passthepopcorn') || lname.includes('ptp')) {
+        const raw = API_KEYS[name] || '';
+        const parts = raw.split('|').map(s => s.trim());
+        const apiUserVal = parts[0] || '';
+        const apiKeyVal = parts[1] || '';
+        inputs = `
+                <input type="text" placeholder="PTP ApiUser" value="${apiUserVal}" class="apiKey" data-site="${name}" data-key="apiuser" style="width:100%; margin-top:4px;">
+                <input type="text" placeholder="PTP ApiKey" value="${apiKeyVal}" class="apiKey" data-site="${name}" data-key="apikey" style="width:100%; margin-top:4px;">
+`;
+      } else if (lname.includes('hdb') || lname.includes('hdbits') || name === 'HDB') {
         const raw = API_KEYS[name] || '';
         const parts = raw.split('|').map(s => s.trim());
         const usernameVal = parts[0] || '';
@@ -838,6 +849,43 @@
                 resolve(out);
               } else { resolve({ hasReleases: true, count: 0, error: true }); }
             }, onerror(err) { console.error('ANT API error', err); resolve({ hasReleases: true, count: 0, error: true }); } });
+          });
+          return true;
+        }
+
+        // PTP (PassThePopcorn) - GET with imdb param and ApiUser/ApiKey headers
+        if (urlSample.includes('passthepopcorn.me') || site.name.toLowerCase().includes('ptp')) {
+          if (!tokens[0] || !tokens[1]) { resolve({ hasReleases: true, count: 0, error: false }); return true; }
+          const imdbParam = imdbId || '';
+          if (!imdbParam) { resolve({ hasReleases: true, count: 0, error: false }); return true; }
+          const apiUrl = `https://passthepopcorn.me/torrents.php?action=advanced&order_by=relevance&searchbar=${encodeURIComponent(imdbParam)}&pretty=1&json=noredirect`;
+          const cacheKey = `api_cache_PTP_${imdbParam}`;
+          getCachedApiResponse(cacheKey).then(cached => {
+            if (cached) return resolve(cached);
+            GM.xmlHttpRequest({
+              method: 'GET',
+              url: apiUrl,
+              headers: {
+                'ApiUser': tokens[0],
+                'ApiKey': tokens[1],
+                'User-Agent': navigator.userAgent
+              },
+              responseType: 'json',
+              onload(resp) {
+                if (resp.status === 200 && resp.response) {
+                  const res = resp.response;
+                  const movies = Array.isArray(res.Movies) ? res.Movies : [];
+                  const count = movies.reduce((total, movie) => {
+                    const torrents = Array.isArray(movie.Torrents) ? movie.Torrents : [];
+                    return total + torrents.length;
+                  }, 0);
+                  const out = { hasReleases: count > 0, count, error: false };
+                  setCachedApiResponse(cacheKey, out);
+                  resolve(out);
+                } else { resolve({ hasReleases: true, count: 0, error: true }); }
+              },
+              onerror(err) { console.error('PTP API error', err); resolve({ hasReleases: true, count: 0, error: true }); }
+            });
           });
           return true;
         }
