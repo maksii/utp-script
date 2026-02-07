@@ -1543,8 +1543,31 @@
       const externalLinksUl = document.querySelector(".meta__ids");
 
       // Collect all enabled sites that should be displayed
+      const enabledSitesOrder = (() => {
+        const enabledOrder = ENABLED_SITES.slice();
+        const enabledSet = new Set(enabledOrder);
+        const runtimeUnit3dSites = RUNTIME_SITES
+          .filter(site => site.type === SITE_TYPES.UNIT3D && enabledSet.has(site.name))
+          .map(site => site.name);
+        const sortedUnit3dSites = Array.from(new Set(runtimeUnit3dSites))
+          .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+
+        if (!sortedUnit3dSites.length) {
+          return enabledOrder;
+        }
+
+        const nonUnit3dSites = enabledOrder.filter(name => !sortedUnit3dSites.includes(name));
+        const unit3dInsertIndex = enabledOrder.findIndex(name => sortedUnit3dSites.includes(name));
+        if (unit3dInsertIndex === -1) {
+          return enabledOrder;
+        }
+
+        return nonUnit3dSites.slice(0, unit3dInsertIndex)
+          .concat(sortedUnit3dSites, nonUnit3dSites.slice(unit3dInsertIndex));
+      })();
+
       const enabledSitesMap = {};
-      ENABLED_SITES.forEach((siteName, index) => {
+      enabledSitesOrder.forEach((siteName, index) => {
         enabledSitesMap[siteName] = index;
       });
 
@@ -1552,6 +1575,10 @@
       const sitesToProcess = filteredSites.filter(site => {
         // First check if the site is enabled
         if (!ENABLED_SITES.includes(site.name)) {
+          return false;
+        }
+
+        if (site.name === "Letterboxd" && document.querySelector(".meta__letterboxd") !== null) {
           return false;
         }
 
