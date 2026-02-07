@@ -343,10 +343,9 @@
     const config = await loadConfig();
     const { ENABLED_SITES, ICON_FONT_SIZE, ICON_IMAGE_SIZE, API_KEYS, SHOW_RELEASE_COUNT, ENABLE_API_SUPPORT, API_CACHE_EXPIRY, ONLY_SEARCH_BY_BUTTON_PRESS, SKIP_CACHE_WHEN_BUTTON_PRESS, USE_TRACKER_FAVICON } = config;
 
-    // Load custom sites and group sites by type for better organization
+    // Load custom sites and group base sites by type for better organization
     const customSites = await loadCustomSites();
-    const combinedSites = Array.isArray(customSites) && customSites.length ? SITES.concat(customSites) : SITES;
-    const sitesByType = combinedSites.reduce((acc, site) => {
+    const sitesByType = SITES.reduce((acc, site) => {
       const type = site.type || SITE_TYPES.STANDARD;
       if (!acc[type]) acc[type] = [];
       acc[type].push(site);
@@ -394,8 +393,7 @@
       return `\n              <div style="margin-bottom:8px;">\n                <label>\n                  <input type="checkbox" value="${name}" ${ENABLED_SITES.includes(name) ? "checked" : ""}>\n                  ${name}\n                </label>\n                <br>\n                ${inputs}\n              </div>\n`;
     }).join('') : 'No tracker sites';
 
-    // Custom sites are stored separately and editable here; they will also appear
-    // in the UNIT3D list after saving/reload.
+    // Custom sites are stored separately and editable here; they are only shown in this panel.
     const customSitesHtml = customSites && customSites.length ? customSites.map(site => {
       const displayName = site.name || (new URL(site.base)).hostname;
       return `
@@ -490,18 +488,6 @@
           </div>
         </div>
 
-        <!-- Custom UNIT3D sites -->
-        <div style="margin-bottom: 20px; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-          <h3 style="margin-top: 0;">Custom UNIT3D Sites</h3>
-          <div style="margin-bottom:8px;">
-            <input type="text" id="newCustomSiteBase" placeholder="https://reelflix.xyz/" style="width:70%; margin-right:8px;">
-            <button id="addCustomSiteBtn">Add Site</button>
-          </div>
-          <div id="customSitesList">
-            ${customSitesHtml}
-          </div>
-        </div>
-
         <!-- Third row: TRACKER and UNIT3D sites -->
         <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
           <!-- TRACKER sites -->
@@ -510,18 +496,32 @@
             ${trackerInputsHtml}
           </div>
 
-          <!-- UNIT3D sites -->
-          <div style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-            <h3 style="margin-top: 0;">UNIT3D</h3>
-            ${sitesByType[SITE_TYPES.UNIT3D] ? sitesByType[SITE_TYPES.UNIT3D].map(site => `
-              <div>
-                <label style="min-width: 120px;display: inline-block;">
-                  <input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}>
-                  ${site.name}
-                </label>
-                <input type="text" placeholder="API Key" value="${API_KEYS[site.name] || ''}" class="apiKey" data-site="${site.name}">
+          <div style="flex: 1; display: flex; gap: 10px;">
+            <!-- UNIT3D sites -->
+            <div style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+              <h3 style="margin-top: 0;">UNIT3D</h3>
+              ${sitesByType[SITE_TYPES.UNIT3D] ? sitesByType[SITE_TYPES.UNIT3D].map(site => `
+                <div>
+                  <label style="min-width: 120px;display: inline-block;">
+                    <input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}>
+                    ${site.name}
+                  </label>
+                  <input type="text" placeholder="API Key" value="${API_KEYS[site.name] || ''}" class="apiKey" data-site="${site.name}">
+                </div>
+              `).join("") : "No UNIT3D sites"}
+            </div>
+
+            <!-- Custom UNIT3D sites -->
+            <div style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+              <h3 style="margin-top: 0;">Custom UNIT3D Sites</h3>
+              <div style="margin-bottom:8px;">
+                <input type="text" id="newCustomSiteBase" placeholder="https://reelflix.xyz/" style="width:70%; margin-right:8px;">
+                <button id="addCustomSiteBtn">Add Site</button>
               </div>
-            `).join("") : "No UNIT3D sites"}
+              <div id="customSitesList">
+                ${customSitesHtml}
+              </div>
+            </div>
           </div>
         </div>
       </div>
