@@ -163,6 +163,16 @@
       type: SITE_TYPES.TRACKER,
     },
     {
+      name: "Anthelion",
+      icon: "fa-solid fa-sun",
+      imdbSearchUrl:
+        "https://anthelion.me/torrents.php?action=advanced&searchstr=$Id",
+      tmdbSearchUrl: "",
+      nameSearchUrl:
+        "https://anthelion.me/torrents.php?action=advanced&searchstr=$Id",
+      type: SITE_TYPES.TRACKER,
+    },
+    {
       name: "BroadcasTheNet",
       icon: "fa-solid fa-power-off",
       imdbSearchUrl:
@@ -804,8 +814,14 @@
             if (cached) return resolve(cached);
             GM.xmlHttpRequest({ method: 'GET', url: apiUrl, responseType: 'json', onload(resp) {
               if (resp.status === 200 && resp.response) {
-                const data = resp.response.data || resp.response || [];
-                const count = Array.isArray(data) ? data.length : (data ? 1 : 0);
+                const payload = resp.response || {};
+                const items = payload.item || [];
+                const total = payload.response && typeof payload.response.total === 'number'
+                  ? payload.response.total
+                  : (payload.response && typeof payload.response.total === 'string' ? Number(payload.response.total) : NaN);
+                const count = Number.isFinite(total) && total >= 0
+                  ? total
+                  : (Array.isArray(items) ? items.length : 0);
                 const out = { hasReleases: count > 0, count, error: false };
                 setCachedApiResponse(cacheKey, out);
                 resolve(out);
