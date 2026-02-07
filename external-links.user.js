@@ -1121,8 +1121,10 @@
     const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
     // Function to create an external link element
-    async function createExternalLink(url, site, releaseCount, hasError = false) {
+    async function createExternalLink(url, site, releaseCount, hasError = false, showBadges = true) {
       let linkElement = document.createElement("a");
+      linkElement.className = "external-link-item";
+      linkElement.dataset.site = site.name;
       let iconHtml = "";
       let image = site.icon.endsWith(".svg") || site.icon.endsWith(".png");
 
@@ -1134,7 +1136,7 @@
 
       let badgeHtml = "";
       // Show badges for UNIT3D sites and TRACKER sites when API key is configured
-      if ((site.type === SITE_TYPES.UNIT3D || (site.type === SITE_TYPES.TRACKER && API_KEYS[site.name])) && SHOW_RELEASE_COUNT) {
+      if (showBadges && (site.type === SITE_TYPES.UNIT3D || (site.type === SITE_TYPES.TRACKER && API_KEYS[site.name])) && SHOW_RELEASE_COUNT) {
         if (hasError) {
           // Show error indicator
           badgeHtml = `<span class="release-count-badge error-badge">!</span>`;
@@ -1233,8 +1235,31 @@
       return linkElement;
     }
 
+    function updateExternalLinkBadge(linkElement, site, releaseCount, hasError = false) {
+      if (!linkElement) return;
+      const container = linkElement.querySelector('.icon-container');
+      if (!container) return;
+
+      const existingBadge = container.querySelector('.release-count-badge');
+      if (existingBadge) existingBadge.remove();
+
+      if (!(site.type === SITE_TYPES.UNIT3D || (site.type === SITE_TYPES.TRACKER && API_KEYS[site.name])) || !SHOW_RELEASE_COUNT) {
+        return;
+      }
+
+      if (hasError) {
+        container.insertAdjacentHTML('beforeend', '<span class="release-count-badge error-badge">!</span>');
+        return;
+      }
+
+      if (releaseCount > 0 || config.SHOW_ICONS_WITHOUT_RELEASES) {
+        const badgeClass = releaseCount > 0 ? "release-count-badge" : "release-count-badge zero-badge";
+        container.insertAdjacentHTML('beforeend', `<span class="${badgeClass}">${releaseCount}</span>`);
+      }
+    }
+
     // New function to handle link preparation and collection
-    async function prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear) {
+    async function prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear, runApiChecks = true) {
       let searchUrl = "";
       if (imdbId != "" && site.imdbSearchUrl != "") {
         searchUrl = site.imdbSearchUrl.replace("$Id", imdbId);
@@ -1293,7 +1318,7 @@
 
       // Check for releases on sites with API support if API key is available
       // Allow UNIT3D and TRACKER sites to use API checks when an API key is present
-      if (site.type !== SITE_TYPES.STANDARD && site.type !== SITE_TYPES.INDEXER && API_KEYS[site.name]) {
+      if (runApiChecks && site.type !== SITE_TYPES.STANDARD && site.type !== SITE_TYPES.INDEXER && API_KEYS[site.name]) {
         const result = await checkReleasesViaApi(site, imdbId, tmdbId, tvdbId, mediaTitleNoYear);
         if (result.hasReleases || config.SHOW_ICONS_WITHOUT_RELEASES) {
           return {
@@ -1539,9 +1564,24 @@
 
       // Process all sites in order and add links
       (async () => {
-        // If only-search-by-button option is enabled, show a single generic icon
-        // that triggers the full search when clicked.
+        // If only-search-by-button option is enabled, show all icons without counts
+        // and use the button to trigger API checks.
         if (config.ONLY_SEARCH_BY_BUTTON_PRESS) {
+          const initialLinkPromises = sitesToProcess.map(site =>
+            prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear, false)
+          );
+          const initialPreparedLinks = await Promise.all(initialLinkPromises);
+          const initialValidLinks = initialPreparedLinks.filter(link => link !== null);
+          initialValidLinks.sort((a, b) => {
+            const indexA = enabledSitesMap[a.site.name] !== undefined ? enabledSitesMap[a.site.name] : Infinity;
+            const indexB = enabledSitesMap[b.site.name] !== undefined ? enabledSitesMap[b.site.name] : Infinity;
+            return indexA - indexB;
+          });
+          const initialLinkElements = await Promise.all(
+            initialValidLinks.map(link => createExternalLink(link.url, link.site, 0, false, false))
+          );
+          initialLinkElements.forEach(linkElement => externalLinksUl.appendChild(linkElement));
+
           const generic = document.createElement('a');
           generic.href = '#';
           generic.className = 'meta-id-tag generic-search-btn';
@@ -1553,23 +1593,37 @@
             e.preventDefault();
             generic.remove();
 
-            const linkPromises = sitesToProcess.map(site => prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear));
-            const preparedLinks = await Promise.all(linkPromises);
-            const validLinks = preparedLinks.filter(link => link !== null);
-            validLinks.sort((a, b) => {
-              const indexA = enabledSitesMap[a.site.name] !== undefined ? enabledSitesMap[a.site.name] : Infinity;
-              const indexB = enabledSitesMap[b.site.name] !== undefined ? enabledSitesMap[b.site.name] : Infinity;
-              return indexA - indexB;
+            const existingLinks = externalLinksUl.querySelectorAll('.external-link-item');
+            const linkBySite = {};
+            existingLinks.forEach(link => {
+              if (link.dataset.site) linkBySite[link.dataset.site] = link;
             });
-            const linkElements = await Promise.all(validLinks.map(link => createExternalLink(link.url, link.site, link.count, link.error)));
-            linkElements.forEach(linkElement => externalLinksUl.appendChild(linkElement));
+
+            sitesToProcess.forEach(site => {
+              prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear, true)
+                .then(result => {
+                  const linkElement = linkBySite[site.name];
+                  if (!linkElement || !result) return;
+                  const inner = linkElement.querySelector('a.meta-id-tag');
+                  if (inner && result.url) {
+                    inner.href = result.url;
+                    inner.title = site.name;
+                  }
+                  updateExternalLinkBadge(linkElement, site, result.count, result.error);
+                })
+                .catch(err => {
+                  console.error(`API check failed for ${site.name}`, err);
+                  const linkElement = linkBySite[site.name];
+                  updateExternalLinkBadge(linkElement, site, 0, true);
+                });
+            });
           });
           return;
         }
 
         // Prepare all links (this creates an array of promises)
         const linkPromises = sitesToProcess.map(site =>
-          prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear)
+          prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear, true)
         );
 
         // Wait for all link preparations to complete
@@ -1586,7 +1640,7 @@
         });
 
         // Create and append links in the correct order
-        const linkElements = await Promise.all(validLinks.map(link => createExternalLink(link.url, link.site, link.count, link.error)));
+        const linkElements = await Promise.all(validLinks.map(link => createExternalLink(link.url, link.site, link.count, link.error, true)));
         linkElements.forEach(linkElement => externalLinksUl.appendChild(linkElement));
       })();
     })();
