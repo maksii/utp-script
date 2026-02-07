@@ -1048,69 +1048,10 @@
         if (site.type === SITE_TYPES.TRACKER && API_KEYS[site.name]) {
           const handled = checkSpecificTrackerApi(site, imdbId, tmdbId, tvdbId, titleNoYear, resolve);
           if (handled) return; // specific handler will call resolve
-          // Fallback to a generic filter endpoint if specific handler not available
-          return checkGenericApiReleases(site, imdbId, tmdbId, resolve);
         }
 
         // For STANDARD sites or trackers without API support, default to showing the link
         resolve({ hasReleases: true, count: 0 });
-      });
-    }
-
-    // Generic API check for trackers that expose a /api/torrents/filter endpoint
-    async function checkGenericApiReleases(site, imdbId, tmdbId, resolve) {
-      // Skip the check if no API key is available
-      if (!API_KEYS[site.name]) {
-        resolve({ hasReleases: true, count: 0, error: false });
-        return;
-      }
-
-      const baseUrl = new URL((site.imdbSearchUrl || site.nameSearchUrl).replace('$Id', '')).origin;
-      let apiUrl = `${baseUrl}/api/torrents/filter?`;
-
-      if (tmdbId) {
-        apiUrl += `tmdbId=${tmdbId}`;
-      } else if (imdbId) {
-        // strip leading 'tt' if present
-        const imdbParam = imdbId.startsWith('tt') ? imdbId.split('tt')[1] : imdbId;
-        apiUrl += `imdbId=${imdbParam}`;
-      } else {
-        resolve({ hasReleases: true, count: 0, error: false });
-        return;
-      }
-
-      const cacheKey = `api_cache_${site.name}_${tmdbId || imdbId}`;
-
-      getCachedApiResponse(cacheKey).then(cachedResponse => {
-        if (cachedResponse) {
-          resolve(cachedResponse);
-          return;
-        }
-        GM.xmlHttpRequest({
-          method: 'GET',
-          url: apiUrl,
-          headers: {
-            'Authorization': `Bearer ${API_KEYS[site.name]}`,
-            'Accept': 'application/json'
-          },
-          responseType: 'json',
-          onload: function(response) {
-            if (response.status === 200 && response.response) {
-              const data = response.response;
-              const releaseCount = data.data ? data.data.length : 0;
-              const result = { hasReleases: releaseCount > 0, count: releaseCount, error: false };
-              setCachedApiResponse(cacheKey, result);
-              resolve(result);
-            } else {
-              console.error(`API request failed for ${site.name}:`, response);
-              resolve({ hasReleases: true, count: 0, error: true });
-            }
-          },
-          onerror: function(err) {
-            console.error(`API request error for ${site.name}:`, err);
-            resolve({ hasReleases: true, count: 0, error: true });
-          }
-        });
       });
     }
 
