@@ -48,6 +48,9 @@
     ENABLE_API_SUPPORT: false, // Toggle to enable/disable API calls
     SHOW_ICONS_WITHOUT_RELEASES: true, // Toggle to show icons even when no releases are found
     API_CACHE_EXPIRY: 30 * 60 * 1000, // Cache expiry time in milliseconds (30 minutes)
+    ONLY_SEARCH_BY_BUTTON_PRESS: true, // When true, do not auto-search; require user click to load links
+    SKIP_CACHE_WHEN_BUTTON_PRESS: false, // When true, ignore API cache when button press is required
+    USE_TRACKER_FAVICON: false, // When true, use https://<tracker-origin>/favicon.ico for tracker icons
   };
 
   // Site Types
@@ -160,6 +163,26 @@
       type: SITE_TYPES.TRACKER,
     },
     {
+      name: "MoreThanTV",
+      icon: "fa-solid fa-tv",
+      imdbSearchUrl:
+        "https://www.morethantv.me/torrents.php?searchtext=$Id",
+      tmdbSearchUrl: "",
+      nameSearchUrl:
+        "https://www.morethantv.me/torrents.php?searchtext=$Id",
+      type: SITE_TYPES.TRACKER,
+    },
+    {
+      name: "Anthelion",
+      icon: "fa-solid fa-sun",
+      imdbSearchUrl:
+        "https://anthelion.me/torrents.php?action=advanced&searchstr=$Id",
+      tmdbSearchUrl: "",
+      nameSearchUrl:
+        "https://anthelion.me/torrents.php?action=advanced&searchstr=$Id",
+      type: SITE_TYPES.TRACKER,
+    },
+    {
       name: "BroadcasTheNet",
       icon: "fa-solid fa-power-off",
       imdbSearchUrl:
@@ -222,9 +245,9 @@
     {
       name: "ReelFlix",
       icon: "fa fa-video",
-      imdbSearchUrl: "https://reelflix.xyz/torrents?imdbId=$Id",
-      tmdbSearchUrl: "https://reelflix.xyz/torrents?tmdbId=$Id",
-      nameSearchUrl: "https://reelflix.xyz/torrents?name=$Id",
+      imdbSearchUrl: "https://reelflix.cc/torrents?imdbId=$Id",
+      tmdbSearchUrl: "https://reelflix.cc/torrents?tmdbId=$Id",
+      nameSearchUrl: "https://reelflix.cc/torrents?name=$Id",
       type: SITE_TYPES.UNIT3D,
     },
     {
@@ -241,7 +264,7 @@
         imdbSearchUrl: 'https://eiga.moi/torrents?imdb=$Id',
         tmdbSearchUrl: 'https://eiga.moi/torrents?tmdb=$Id', //Not working
         nameSearchUrl: 'https://eiga.moi/torrents?name=$Id',
-        type: SITE_TYPES.TRACKER,
+      type: SITE_TYPES.UNIT3D,
     },
     {
         name: 'Cinemaggedon',
@@ -265,7 +288,7 @@
         imdbSearchUrl: 'https://cinematik.net/torrents?&imdbId=$Id&sortField=size',
         tmdbSearchUrl: 'https://cinematik.net/torrents?&tmdbId=$Id&sortField=size',
         nameSearchUrl: 'https://cinematik.net/torrents?&name=$Id&sortField=size',
-        type: SITE_TYPES.TRACKER,
+      type: SITE_TYPES.UNIT3D,
     },
     {
         name: 'HDBits',
@@ -295,6 +318,24 @@
     },
   ];
 
+  // Custom UNIT3D sites are stored separately (non-expiring)
+  async function loadCustomSites() {
+    try {
+      const sites = await GM.getValue('custom_unit3d_sites');
+      return sites || [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function saveCustomSites(sites) {
+    try {
+      await GM.setValue('custom_unit3d_sites', sites);
+    } catch (e) {
+      console.error('Failed to save custom sites', e);
+    }
+  }
+
   // Utility to save and load configuration
   async function saveConfig(config) {
     await GM.setValue("config", config);
@@ -320,9 +361,10 @@
   // Create configuration UI
   async function showConfigUI() {
     const config = await loadConfig();
-    const { ENABLED_SITES, ICON_FONT_SIZE, ICON_IMAGE_SIZE, API_KEYS, SHOW_RELEASE_COUNT, ENABLE_API_SUPPORT, API_CACHE_EXPIRY } = config;
+    const { ENABLED_SITES, ICON_FONT_SIZE, ICON_IMAGE_SIZE, API_KEYS, SHOW_RELEASE_COUNT, ENABLE_API_SUPPORT, API_CACHE_EXPIRY, ONLY_SEARCH_BY_BUTTON_PRESS, SKIP_CACHE_WHEN_BUTTON_PRESS, USE_TRACKER_FAVICON } = config;
 
-    // Group sites by type for better organization
+    // Load custom sites and group base sites by type for better organization
+    const customSites = await loadCustomSites();
     const sitesByType = SITES.reduce((acc, site) => {
       const type = site.type || SITE_TYPES.STANDARD;
       if (!acc[type]) acc[type] = [];
@@ -334,6 +376,84 @@
     const showReleaseCount = config.SHOW_RELEASE_COUNT !== false ? "checked" : "";
     const enableApiSupport = config.ENABLE_API_SUPPORT === true ? "checked" : "";
     const showIconsWithoutReleases = config.SHOW_ICONS_WITHOUT_RELEASES !== false ? "checked" : "";
+    const onlySearchChecked = config.ONLY_SEARCH_BY_BUTTON_PRESS !== false ? "checked" : "";
+    const skipCacheWhenButtonPressChecked = config.SKIP_CACHE_WHEN_BUTTON_PRESS === true ? "checked" : "";
+    const useTrackerFaviconChecked = config.USE_TRACKER_FAVICON === true ? "checked" : "";
+
+    // Define expected key order for trackers that require multiple credentials
+    const TRACKER_KEY_ORDER = {
+      "HDB": ["username", "passkey"],
+      "HDBITS": ["username", "passkey"],
+      "PTP": ["apiuser", "apikey"],
+      "PASSTHEPOPCORN": ["apiuser", "apikey"],
+      "BHD": ["token"],
+      "BTN": ["token"],
+      "ANT": ["apikey"],
+      "MTV": ["apikey"],
+      "RTF": ["apikey"]
+    };
+
+    // Build tracker inputs with tracker-specific placeholders / multiple fields when needed
+    const trackerInputsHtml = sitesByType[SITE_TYPES.TRACKER] ? sitesByType[SITE_TYPES.TRACKER].map(site => {
+      const name = site.name;
+      const lname = name.toLowerCase();
+      // Default single input
+      let inputs = `\n                <input type="text" placeholder="API Key / token" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="key" style="width:100%; margin-top:4px;">\n`;
+
+      if (lname.includes('passthepopcorn') || lname.includes('ptp')) {
+        const raw = API_KEYS[name] || '';
+        const parts = raw.split('|').map(s => s.trim());
+        const apiUserVal = parts[0] || '';
+        const apiKeyVal = parts[1] || '';
+        inputs = `
+                <input type="text" placeholder="PTP ApiUser" value="${apiUserVal}" class="apiKey" data-site="${name}" data-key="apiuser" style="width:100%; margin-top:4px;">
+                <input type="text" placeholder="PTP ApiKey" value="${apiKeyVal}" class="apiKey" data-site="${name}" data-key="apikey" style="width:100%; margin-top:4px;">
+`;
+      } else if (lname.includes('hdb') || lname.includes('hdbits') || name === 'HDB') {
+        const raw = API_KEYS[name] || '';
+        const parts = raw.split('|').map(s => s.trim());
+        const usernameVal = parts[0] || '';
+        const passkeyVal = parts[1] || '';
+        inputs = `
+            <input type="text" placeholder="HDB username" value="${usernameVal}" class="apiKey" data-site="${name}" data-key="username" style="width:100%; margin-top:4px;">
+            <input type="text" placeholder="HDB passkey" value="${passkeyVal}" class="apiKey" data-site="${name}" data-key="passkey" style="width:100%; margin-top:4px;">
+    `;
+      } else if (lname.includes('bhd') || lname === 'beyond-hd' || name === 'BHD') {
+        // BHD expects a single token (no rsskey)
+        const tokenVal = API_KEYS[name] || '';
+        inputs = `\n                <input type="text" placeholder="BHD token" value="${tokenVal}" class="apiKey" data-site="${name}" data-key="token" style="width:100%; margin-top:4px;">\n`;
+      } else if (lname.includes('btn') || lname.includes('broadcasthe')) {
+        inputs = `\n                <input type="text" placeholder="BTN token" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="token" style="width:100%; margin-top:4px;">\n`;
+      } else if (lname.includes('pterclub')) {
+        inputs = '';
+      } else if (lname.includes('morethantv') || lname.includes('mtv')) {
+        inputs = `\n                <input type="text" placeholder="MoreThanTV API key" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="apikey" style="width:100%; margin-top:4px;">\n`;
+      } else if (lname === 'anthelion' || lname.includes('anthelion')) {
+        inputs = `\n                <input type="text" placeholder="Anthelion API key" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="apikey" style="width:100%; margin-top:4px;">\n`;
+      } else if (lname.includes('retroflix') || lname.includes('rtf')) {
+        inputs = `\n                <input type="text" placeholder="RetroFlix API key (optional)" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="apikey" style="width:100%; margin-top:4px;">\n`;
+      }
+
+      return `\n              <div style="margin-bottom:8px;">\n                <label>\n                  <input type="checkbox" value="${name}" ${ENABLED_SITES.includes(name) ? "checked" : ""}>\n                  ${name}\n                </label>\n                <br>\n                ${inputs}\n              </div>\n`;
+    }).join('') : 'No tracker sites';
+
+    // Custom sites are stored separately and editable here; they are only shown in this panel.
+    const customSitesHtml = customSites && customSites.length ? customSites.map(site => {
+      const displayName = site.name || (new URL(site.base)).hostname;
+      return `
+        <div class="customSiteEntry" data-base="${site.base}" data-name="${displayName}">
+          <label>
+            <input type="checkbox" value="${displayName}" ${ENABLED_SITES.includes(displayName) ? "checked" : ""}>
+            ${displayName}
+          </label>
+          <div style="font-size:12px;color:#ccc">${site.base}</div>
+          <div style="margin-top:4px;">
+            <input type="text" placeholder="API Key" value="${API_KEYS[displayName] || ''}" class="apiKey" data-site="${displayName}">
+            <button class="removeCustomSiteBtn" data-name="${displayName}" style="margin-left:8px;">Remove</button>
+          </div>
+        </div>
+      `;
+    }).join('') : '<div style="font-size:12px;color:#ccc">No custom sites added yet.</div>';
 
     const html = `
       <div>
@@ -359,6 +479,24 @@
             <label>
               <input type="checkbox" id="showIconsWithoutReleases" ${showIconsWithoutReleases}>
               Show icons even when no releases are found
+            </label>
+          </div>
+          <div style="margin-bottom: 10px;">
+            <label>
+              <input type="checkbox" id="onlySearchByButton" ${onlySearchChecked}>
+              Only search by button press (show generic icon until clicked)
+            </label>
+          </div>
+          <div style="margin-bottom: 10px; margin-left: 18px;">
+            <label>
+              <input type="checkbox" id="skipCacheWhenButtonPress" ${skipCacheWhenButtonPressChecked}>
+              Skip API cache when button press is required
+            </label>
+          </div>
+          <div style="margin-bottom: 10px;">
+            <label>
+              <input type="checkbox" id="useTrackerFavicon" ${useTrackerFaviconChecked}>
+              Use tracker favicon (https://domain/favicon.ico) for tracker icons
             </label>
           </div>
         </div>
@@ -399,28 +537,35 @@
           <!-- TRACKER sites -->
           <div style="flex: 1; margin-right: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
             <h3 style="margin-top: 0;">TRACKER</h3>
-            ${sitesByType[SITE_TYPES.TRACKER] ? sitesByType[SITE_TYPES.TRACKER].map(site => `
-              <div>
-                <label>
-                  <input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}>
-                  ${site.name}
-                </label>
-              </div>
-            `).join("") : "No tracker sites"}
+            ${trackerInputsHtml}
           </div>
 
-          <!-- UNIT3D sites -->
-          <div style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-            <h3 style="margin-top: 0;">UNIT3D</h3>
-            ${sitesByType[SITE_TYPES.UNIT3D] ? sitesByType[SITE_TYPES.UNIT3D].map(site => `
-              <div>
-                <label style="min-width: 120px;display: inline-block;">
-                  <input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}>
-                  ${site.name}
-                </label>
-                <input type="text" placeholder="API Key" value="${API_KEYS[site.name] || ''}" class="apiKey" data-site="${site.name}">
+          <div style="flex: 1; display: flex; gap: 10px;">
+            <!-- UNIT3D sites -->
+            <div style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+              <h3 style="margin-top: 0;">UNIT3D</h3>
+              ${sitesByType[SITE_TYPES.UNIT3D] ? sitesByType[SITE_TYPES.UNIT3D].map(site => `
+                <div>
+                  <label style="min-width: 120px;display: inline-block;">
+                    <input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}>
+                    ${site.name}
+                  </label>
+                  <input type="text" placeholder="API Key" value="${API_KEYS[site.name] || ''}" class="apiKey" data-site="${site.name}">
+                </div>
+              `).join("") : "No UNIT3D sites"}
+            </div>
+
+            <!-- Custom UNIT3D sites -->
+            <div style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+              <h3 style="margin-top: 0;">Custom UNIT3D Sites</h3>
+              <div style="margin-bottom:8px;">
+                <input type="text" id="newCustomSiteBase" placeholder="https://reelflix.xyz/" style="width:70%; margin-right:8px;">
+                <button id="addCustomSiteBtn">Add Site</button>
               </div>
-            `).join("") : "No UNIT3D sites"}
+              <div id="customSitesList">
+                ${customSitesHtml}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -444,23 +589,30 @@
     document
       .getElementById("saveConfigBtn")
       .addEventListener("click", async () => {
-        const checkboxes = configDiv.querySelectorAll('input[type="checkbox"]:not(#showReleaseCount):not(#enableApiSupport):not(#showIconsWithoutReleases)');
+        const checkboxes = configDiv.querySelectorAll('input[type="checkbox"]:not(#showReleaseCount):not(#enableApiSupport):not(#showIconsWithoutReleases):not(#onlySearchByButton):not(#skipCacheWhenButtonPress):not(#useTrackerFavicon)');
         const newEnabledSites = Array.from(checkboxes)
           .filter((checkbox) => checkbox.checked)
           .map((checkbox) => checkbox.value);
 
-        // Collect API keys
+        // Collect API keys (support multiple inputs per tracker)
         const apiKeyInputs = configDiv.querySelectorAll('input.apiKey');
-        const newApiKeys = {};
+        const grouped = {};
 
         apiKeyInputs.forEach(input => {
           const site = input.getAttribute('data-site');
+          if (!site) return;
+          const keyName = input.getAttribute('data-key') || 'key';
           const value = input.value.trim();
-
-          if (value) {
-            newApiKeys[site] = value;
-          }
+          if (!grouped[site]) grouped[site] = {};
+          if (value) grouped[site][keyName] = value;
         });
+
+        const newApiKeys = {};
+        for (const site in grouped) {
+          const order = TRACKER_KEY_ORDER[site] || TRACKER_KEY_ORDER[site.toUpperCase()] || Object.keys(grouped[site]);
+          const combined = order.map(k => grouped[site][k] || '').filter(Boolean).join('|');
+          if (combined) newApiKeys[site] = combined;
+        }
 
         // Collect indexer base URLs
         const indexerBaseUrlInputs = configDiv.querySelectorAll('input.indexerBaseUrl');
@@ -475,10 +627,41 @@
           }
         });
 
+        // Collect custom UNIT3D sites from the DOM and persist them (non-expiring)
+        const customSiteEntries = configDiv.querySelectorAll('.customSiteEntry');
+        const newCustomSites = [];
+        customSiteEntries.forEach(entry => {
+          const base = entry.getAttribute('data-base') || '';
+          const name = entry.getAttribute('data-name') || '';
+          if (!base || !name) return;
+          // normalize base to ensure trailing slash
+          let normalized = base.trim();
+          if (!normalized.endsWith('/')) normalized += '/';
+          try {
+            const origin = new URL(normalized).origin;
+            const siteObj = {
+              name: name,
+              icon: `${origin}/favicon.ico`,
+              imdbSearchUrl: `${normalized}torrents?imdbId=$Id`,
+              tmdbSearchUrl: `${normalized}torrents?tmdbId=$Id`,
+              nameSearchUrl: `${normalized}torrents?name=$Id`,
+              type: SITE_TYPES.UNIT3D,
+              base: normalized
+            };
+            newCustomSites.push(siteObj);
+          } catch (e) { /* ignore invalid */ }
+        });
+
+        // Persist custom sites
+        await saveCustomSites(newCustomSites);
+
         // Get show release count setting
         const showReleaseCount = document.getElementById('showReleaseCount').checked;
         const enableApiSupport = document.getElementById('enableApiSupport').checked;
         const showIconsWithoutReleases = document.getElementById('showIconsWithoutReleases').checked;
+        const onlySearchByButton = document.getElementById('onlySearchByButton').checked;
+        const skipCacheWhenButtonPress = document.getElementById('skipCacheWhenButtonPress').checked;
+        const useTrackerFavicon = document.getElementById('useTrackerFavicon').checked;
 
         config.ENABLED_SITES = newEnabledSites;
         config.API_KEYS = newApiKeys;
@@ -486,12 +669,52 @@
         config.SHOW_RELEASE_COUNT = showReleaseCount;
         config.ENABLE_API_SUPPORT = enableApiSupport;
         config.SHOW_ICONS_WITHOUT_RELEASES = showIconsWithoutReleases;
+        config.ONLY_SEARCH_BY_BUTTON_PRESS = onlySearchByButton;
+        config.SKIP_CACHE_WHEN_BUTTON_PRESS = skipCacheWhenButtonPress;
+        config.USE_TRACKER_FAVICON = useTrackerFavicon;
 
         await saveConfig(config);
+        // ensure custom sites saved too (already saved above, but reload to pick up)
         alert("Configuration saved! The page will now reload.");
         document.body.removeChild(configDiv);
         window.location.reload();
       });
+
+    // Add handlers for adding/removing custom sites inside the configDiv
+    const addBtn = configDiv.querySelector('#addCustomSiteBtn');
+    const customList = configDiv.querySelector('#customSitesList');
+    if (addBtn) {
+      addBtn.addEventListener('click', (e) => {
+        const input = configDiv.querySelector('#newCustomSiteBase');
+        if (!input) return;
+        let base = input.value.trim();
+        if (!base) return;
+        try {
+          if (!base.startsWith('http')) base = 'https://' + base;
+          const url = new URL(base);
+          let normalized = url.origin + (url.pathname.endsWith('/') ? url.pathname : url.pathname + '/');
+          const displayName = url.hostname;
+          // create DOM entry
+          const entry = document.createElement('div');
+          entry.className = 'customSiteEntry';
+          entry.setAttribute('data-base', normalized);
+          entry.setAttribute('data-name', displayName);
+          entry.innerHTML = `\n            <label>\n              <input type="checkbox" value="${displayName}" checked>\n              ${displayName}\n            </label>\n            <div style="font-size:12px;color:#ccc">${normalized}</div>\n            <div style="margin-top:4px;">\n              <input type="text" placeholder="API Key" value="" class="apiKey" data-site="${displayName}">\n              <button class="removeCustomSiteBtn" data-name="${displayName}" style="margin-left:8px;">Remove</button>\n            </div>`;
+          customList.appendChild(entry);
+          // wire remove button
+          const rem = entry.querySelector('.removeCustomSiteBtn');
+          if (rem) rem.addEventListener('click', () => entry.remove());
+          input.value = '';
+        } catch (err) { alert('Invalid URL'); }
+      });
+    }
+
+    // wire existing remove buttons
+    const existingRemoves = configDiv.querySelectorAll('.removeCustomSiteBtn');
+    existingRemoves.forEach(btn => btn.addEventListener('click', (e) => {
+      const parent = btn.closest('.customSiteEntry');
+      if (parent) parent.remove();
+    }));
   }
 
   // Add menu command to open configuration UI
@@ -502,14 +725,32 @@
     const config = await loadConfig();
     const { ENABLED_SITES, ICON_FONT_SIZE, ICON_IMAGE_SIZE, API_KEYS, SHOW_RELEASE_COUNT, ENABLE_API_SUPPORT, API_CACHE_EXPIRY } = config;
 
+    // Merge persisted custom UNIT3D sites into runtime sites list so they're used by the script
+    const persistedCustomSites = await loadCustomSites();
+    const RUNTIME_SITES = Array.isArray(persistedCustomSites) && persistedCustomSites.length ? SITES.concat(persistedCustomSites) : SITES;
+
     // Cache management functions
+    function shouldBypassApiCache(cacheKey) {
+      if (!config.ONLY_SEARCH_BY_BUTTON_PRESS || !config.SKIP_CACHE_WHEN_BUTTON_PRESS) {
+        return false;
+      }
+      return typeof cacheKey === 'string' && cacheKey.startsWith('api_cache_');
+    }
+
     async function getCachedApiResponse(cacheKey) {
       try {
+        if (shouldBypassApiCache(cacheKey)) return null;
         const cachedData = await GM.getValue(cacheKey);
         if (!cachedData) return null;
 
-        // Check if cache is expired
-        if (Date.now() - cachedData.timestamp > API_CACHE_EXPIRY) {
+        // For favicon caches, do not expire
+        if (typeof cacheKey === 'string' && cacheKey.startsWith('favicon_')) {
+          console.log(`Using cached favicon for ${cacheKey}`);
+          return cachedData.data;
+        }
+
+        // Check if cache is expired for other caches
+        if (!cachedData.timestamp || (Date.now() - cachedData.timestamp > API_CACHE_EXPIRY)) {
           console.log(`Cache expired for ${cacheKey}`);
           return null;
         }
@@ -524,6 +765,7 @@
 
     async function setCachedApiResponse(cacheKey, data) {
       try {
+        if (shouldBypassApiCache(cacheKey)) return;
         await GM.setValue(cacheKey, {
           timestamp: Date.now(),
           data: data
@@ -534,8 +776,262 @@
       }
     }
 
+    // Special-case API handlers for known trackers with non-standard endpoints
+    // Returns true if a handler started an async check (and will call resolve), false otherwise
+    function checkSpecificTrackerApi(site, imdbId, tmdbId, tvdbId, titleNoYear, resolve) {
+      try {
+        const urlSample = (site.imdbSearchUrl || site.nameSearchUrl || "").toLowerCase();
+        const tokenRaw = API_KEYS[site.name] || "";
+        const tokens = tokenRaw.split('|').map(s => s.trim()).filter(Boolean);
+
+        // BTN (BroadcastTheNet) - JSON-RPC POST to https://api.broadcasthe.net/
+        if (urlSample.includes('broadcasthe.net') || site.name.toLowerCase().includes('btn')) {
+          if (!tokens[0]) {
+            resolve({ hasReleases: true, count: 0, error: false });
+            return true;
+          }
+          const hasTvdb = Boolean(tvdbId);
+          const searchParams = hasTvdb
+            ? { tvdb: tvdbId }
+            : (titleNoYear ? { search: titleNoYear } : { search: site.name });
+          const resultsPerPage = hasTvdb ? 50 : 6;
+
+          const postData = {
+            jsonrpc: "2.0",
+            id: Math.random().toString(36).substring(2, 10),
+            method: "getTorrentsSearch",
+            params: [
+              tokens[0],
+              searchParams,
+              resultsPerPage
+            ]
+          };
+
+          const cacheKeySuffix = tvdbId || (titleNoYear ? encodeURIComponent(titleNoYear) : '') || imdbId || tmdbId || 'unknown';
+          const cacheKey = `api_cache_BTN_${cacheKeySuffix}`;
+          getCachedApiResponse(cacheKey).then(cached => {
+            if (cached) return resolve(cached);
+            GM.xmlHttpRequest({
+              method: 'POST',
+              url: 'https://api.broadcasthe.net/',
+              data: JSON.stringify(postData),
+              headers: { 'Content-Type': 'application/json' },
+              responseType: 'json',
+              onload: function(resp) {
+                if (resp.status === 200 && resp.response) {
+                  const resultData = resp.response.result || {};
+                  const reported = Number(resultData.results);
+                  const torrentCount = resultData.torrents && typeof resultData.torrents === 'object'
+                    ? Object.keys(resultData.torrents).length
+                    : 0;
+                  const count = Number.isFinite(reported) && reported >= 0 ? reported : torrentCount;
+                  const out = { hasReleases: count > 0, count, error: false };
+                  setCachedApiResponse(cacheKey, out);
+                  resolve(out);
+                } else {
+                  resolve({ hasReleases: true, count: 0, error: true });
+                }
+              },
+              onerror: function(err) { console.error('BTN API error', err); resolve({ hasReleases: true, count: 0, error: true }); }
+            });
+          });
+          return true;
+        }
+
+        // ANT (Anthelion) - GET with apikey in query string
+        if (urlSample.includes('anthelion.me') || site.name.toLowerCase() === 'anthelion') {
+          if (!tokens[0]) { resolve({ hasReleases: true, count: 0, error: false }); return true; }
+          const imdbParam = imdbId ? imdbId.replace(/^tt/, '') : '';
+          const apiUrl = `https://anthelion.me/api.php?apikey=${tokens[0]}&t=movie&imdbid=${imdbParam}&o=json`;
+          const cacheKey = `api_cache_ANT_${imdbParam}`;
+          getCachedApiResponse(cacheKey).then(cached => {
+            if (cached) return resolve(cached);
+            GM.xmlHttpRequest({ method: 'GET', url: apiUrl, responseType: 'json', onload(resp) {
+              if (resp.status === 200 && resp.response) {
+                const payload = resp.response || {};
+                const items = payload.item || [];
+                const total = payload.response && typeof payload.response.total === 'number'
+                  ? payload.response.total
+                  : (payload.response && typeof payload.response.total === 'string' ? Number(payload.response.total) : NaN);
+                const count = Number.isFinite(total) && total >= 0
+                  ? total
+                  : (Array.isArray(items) ? items.length : 0);
+                const out = { hasReleases: count > 0, count, error: false };
+                setCachedApiResponse(cacheKey, out);
+                resolve(out);
+              } else { resolve({ hasReleases: true, count: 0, error: true }); }
+            }, onerror(err) { console.error('ANT API error', err); resolve({ hasReleases: true, count: 0, error: true }); } });
+          });
+          return true;
+        }
+
+        // PTP (PassThePopcorn) - GET with imdb param and ApiUser/ApiKey headers
+        if (urlSample.includes('passthepopcorn.me') || site.name.toLowerCase().includes('ptp')) {
+          if (!tokens[0] || !tokens[1]) { resolve({ hasReleases: true, count: 0, error: false }); return true; }
+          const imdbParam = imdbId || '';
+          if (!imdbParam) { resolve({ hasReleases: true, count: 0, error: false }); return true; }
+          const apiUrl = `https://passthepopcorn.me/torrents.php?action=advanced&order_by=relevance&searchbar=${encodeURIComponent(imdbParam)}&pretty=1&json=noredirect`;
+          const cacheKey = `api_cache_PTP_${imdbParam}`;
+          getCachedApiResponse(cacheKey).then(cached => {
+            if (cached) return resolve(cached);
+            GM.xmlHttpRequest({
+              method: 'GET',
+              url: apiUrl,
+              headers: {
+                'ApiUser': tokens[0],
+                'ApiKey': tokens[1],
+                'User-Agent': navigator.userAgent
+              },
+              responseType: 'json',
+              onload(resp) {
+                if (resp.status === 200 && resp.response) {
+                  const res = resp.response;
+                  const movies = Array.isArray(res.Movies) ? res.Movies : [];
+                  const count = movies.reduce((total, movie) => {
+                    const torrents = Array.isArray(movie.Torrents) ? movie.Torrents : [];
+                    return total + torrents.length;
+                  }, 0);
+                  const out = { hasReleases: count > 0, count, error: false };
+                  setCachedApiResponse(cacheKey, out);
+                  resolve(out);
+                } else { resolve({ hasReleases: true, count: 0, error: true }); }
+              },
+              onerror(err) { console.error('PTP API error', err); resolve({ hasReleases: true, count: 0, error: true }); }
+            });
+          });
+          return true;
+        }
+
+        // HDBits (HDB) - POST to /api/torrents with username/passkey
+        if (urlSample.includes('hdbits.org') || site.name.toLowerCase().includes('hdb')) {
+          if (!tokens[0] || !tokens[1]) { resolve({ hasReleases: true, count: 0, error: false }); return true; }
+          const imdbParam = imdbId ? imdbId.replace(/^tt/, '') : '';
+          const postUrl = 'https://hdbits.org/api/torrents';
+          const postData = {
+            username: tokens[0],
+            passkey: tokens[1],
+            imdb: { id: imdbParam }
+          };
+          const cacheKey = `api_cache_HDB_${imdbParam}`;
+          getCachedApiResponse(cacheKey).then(cached => {
+            if (cached) return resolve(cached);
+            GM.xmlHttpRequest({
+              method: 'POST',
+              url: postUrl,
+              data: JSON.stringify(postData),
+              headers: { 'Content-Type': 'application/json' },
+              responseType: 'json',
+              onload(resp) {
+                if (resp.status === 200 && resp.response) {
+                  const res = resp.response;
+                  const data = Array.isArray(res.data) ? res.data : [];
+                  const count = data.length;
+                  const out = { hasReleases: count > 0, count, error: false };
+                  setCachedApiResponse(cacheKey, out);
+                  resolve(out);
+                } else { resolve({ hasReleases: true, count: 0, error: true }); }
+              },
+              onerror(err) { console.error('HDB API error', err); resolve({ hasReleases: true, count: 0, error: true }); }
+            });
+          });
+          return true;
+        }
+
+        // BHD (Beyond-HD) - POST to /api/torrents/<token> with imdb_id
+        if (urlSample.includes('beyond-hd.me') || site.name.toLowerCase().includes('bhd')) {
+          if (!tokens[0]) { resolve({ hasReleases: true, count: 0, error: false }); return true; }
+          const imdbParam = imdbId ? imdbId.replace(/^tt/, '') : '';
+          const postUrl = `https://beyond-hd.me/api/torrents/${tokens[0]}`;
+          const postData = { action: 'search', imdb_id: imdbParam };
+          const cacheKey = `api_cache_BHD_${imdbParam}`;
+          getCachedApiResponse(cacheKey).then(cached => {
+            if (cached) return resolve(cached);
+            GM.xmlHttpRequest({ method: 'POST', url: postUrl, data: JSON.stringify(postData), headers: { 'Content-Type': 'application/json' }, responseType: 'json', onload(resp) {
+              if (resp.status === 200 && resp.response) {
+                const res = resp.response;
+                let count = 0;
+                if (typeof res.total_results === 'number') {
+                  count = res.total_results;
+                } else if (Array.isArray(res.data)) {
+                  count = res.data.length;
+                } else if (Array.isArray(res)) {
+                  count = res.length;
+                } else if (res) {
+                  count = 1;
+                }
+                const out = { hasReleases: count > 0, count, error: false };
+                setCachedApiResponse(cacheKey, out);
+                resolve(out);
+              } else { resolve({ hasReleases: true, count: 0, error: true }); }
+            }, onerror(err) { console.error('BHD API error', err); resolve({ hasReleases: true, count: 0, error: true }); } });
+          });
+          return true;
+        }
+
+        // MTV (MoreThanTV) - torznab style GET
+        if (urlSample.includes('morethantv.me') || site.name.toLowerCase().includes('mtv')) {
+          if (!tokens[0]) { resolve({ hasReleases: true, count: 0, error: false }); return true; }
+          const imdbParam = imdbId || '';
+          const apiUrl = `https://www.morethantv.me/api/torznab?t=search&apikey=${tokens[0]}&imdbid=${imdbParam}`;
+          const cacheKey = `api_cache_MTV_${imdbParam}`;
+          getCachedApiResponse(cacheKey).then(cached => {
+            if (cached) return resolve(cached);
+            GM.xmlHttpRequest({ method: 'GET', url: apiUrl, responseType: 'text', onload(resp) {
+              if (resp.status === 200) {
+                const text = resp.responseText || resp.response || '';
+                const matches = (text.match(/<item\b/g) || []).length;
+                const count = matches;
+                const out = { hasReleases: count > 0, count, error: false };
+                setCachedApiResponse(cacheKey, out);
+                if (count === 0) {
+                  console.info('MTV API returned zero items', {
+                    imdbParam,
+                    responsePreview: text.slice(0, 500)
+                  });
+                }
+                resolve(out);
+              } else {
+                console.error('MTV API unexpected response', {
+                  status: resp.status,
+                  statusText: resp.statusText,
+                  responseText: (resp.responseText || resp.response || '').slice(0, 500)
+                });
+                resolve({ hasReleases: true, count: 0, error: true });
+              }
+            }, onerror(err) { console.error('MTV API error', err); resolve({ hasReleases: true, count: 0, error: true }); } });
+          });
+          return true;
+        }
+
+        // RetroFlix (RTF) - GET with imdbId parameter
+        if (urlSample.includes('retroflix.club') || site.name.toLowerCase().includes('rtf')) {
+          const imdbParam = imdbId ? imdbId.replace(/^tt/, '') : '';
+          const apiUrl = `https://retroflix.club/api/torrent?imdbId=${imdbParam}&page=1&itemsPerPage=50&sort=torrent.createdAt&direction=desc`;
+          const cacheKey = `api_cache_RTF_${imdbParam}`;
+          getCachedApiResponse(cacheKey).then(cached => {
+            if (cached) return resolve(cached);
+            GM.xmlHttpRequest({ method: 'GET', url: apiUrl, responseType: 'json', onload(resp) {
+              if (resp.status === 200 && resp.response) {
+                const data = resp.response.data || resp.response || [];
+                const count = Array.isArray(data) ? data.length : (data ? 1 : 0);
+                const out = { hasReleases: count > 0, count, error: false };
+                setCachedApiResponse(cacheKey, out);
+                resolve(out);
+              } else { resolve({ hasReleases: true, count: 0, error: true }); }
+            }, onerror(err) { console.error('RTF API error', err); resolve({ hasReleases: true, count: 0, error: true }); } });
+          });
+          return true;
+        }
+
+        return false;
+      } catch (e) {
+        console.error('checkSpecificTrackerApi failed', e);
+        return false;
+      }
+    }
+
     // Check for releases via API based on site type
-    async function checkReleasesViaApi(site, imdbId, tmdbId) {
+    async function checkReleasesViaApi(site, imdbId, tmdbId, tvdbId, titleNoYear) {
       return new Promise((resolve) => {
         // Skip API calls if API support is disabled
         if (!ENABLE_API_SUPPORT) {
@@ -548,13 +1044,13 @@
           return checkUnit3dReleases(site, imdbId, tmdbId, resolve);
         }
 
-        // For STANDARD and TRACKER types, use the same behavior
-        if (site.type === SITE_TYPES.STANDARD || site.type === SITE_TYPES.TRACKER) {
-          resolve({ hasReleases: true, count: 0 });
-          return;
+        // For TRACKER sites that have an API key configured, try specific handlers first
+        if (site.type === SITE_TYPES.TRACKER && API_KEYS[site.name]) {
+          const handled = checkSpecificTrackerApi(site, imdbId, tmdbId, tvdbId, titleNoYear, resolve);
+          if (handled) return; // specific handler will call resolve
         }
 
-        // Default behavior for unknown site types or those without API implementation
+        // For STANDARD sites or trackers without API support, default to showing the link
         resolve({ hasReleases: true, count: 0 });
       });
     }
@@ -636,9 +1132,13 @@
       });
     }
 
+    const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
     // Function to create an external link element
-    function createExternalLink(url, site, releaseCount, hasError = false) {
+    async function createExternalLink(url, site, releaseCount, hasError = false, showBadges = true) {
       let linkElement = document.createElement("a");
+      linkElement.className = "external-link-item";
+      linkElement.dataset.site = site.name;
       let iconHtml = "";
       let image = site.icon.endsWith(".svg") || site.icon.endsWith(".png");
 
@@ -649,8 +1149,8 @@
         (image ? config.ICON_IMAGE_SIZE : config.ICON_FONT_SIZE);
 
       let badgeHtml = "";
-      // Only show badges for UNIT3D sites
-      if (site.type === SITE_TYPES.UNIT3D && SHOW_RELEASE_COUNT) {
+      // Show badges for UNIT3D sites and TRACKER sites when API key is configured
+      if (showBadges && (site.type === SITE_TYPES.UNIT3D || (site.type === SITE_TYPES.TRACKER && API_KEYS[site.name])) && SHOW_RELEASE_COUNT) {
         if (hasError) {
           // Show error indicator
           badgeHtml = `<span class="release-count-badge error-badge">!</span>`;
@@ -661,10 +1161,41 @@
         }
       }
 
-      if (site.icon.startsWith("http") && image) {
+      // Determine favicon usage: always use favicon for custom sites (site.base),
+      // otherwise optionally use favicon when global setting enabled for tracker/unit3d types
+      let iconUrl = site.icon;
+      let useFavicon = false;
+      let faviconOrigin = "";
+      try {
+        if (site.base) {
+          faviconOrigin = new URL(site.base).origin;
+          useFavicon = true;
+          image = true;
+        } else if ((site.type === SITE_TYPES.TRACKER || site.type === SITE_TYPES.UNIT3D) && config.USE_TRACKER_FAVICON) {
+          const base = (site.nameSearchUrl || site.imdbSearchUrl || site.tmdbSearchUrl || "").replace('$Id', '');
+          faviconOrigin = new URL(base).origin;
+          useFavicon = true;
+          image = true;
+        }
+      } catch (e) {
+        // fallback to existing icon
+      }
+
+      const fallbackUrl = (site.icon && site.icon.startsWith && site.icon.startsWith('http')) ? site.icon : '';
+      let cachedFavicon = null;
+      if (useFavicon && faviconOrigin) {
+        const cacheKey = `favicon_${faviconOrigin}`;
+        cachedFavicon = await getCachedApiResponse(cacheKey);
+        if (cachedFavicon) {
+          iconUrl = cachedFavicon;
+        } else {
+          iconUrl = fallbackUrl || TRANSPARENT_PIXEL;
+        }
+      }
+      if (iconUrl && (iconUrl.startsWith("http") || iconUrl.startsWith("data:")) && image) {
         iconHtml = `
           <div class="icon-container">
-            <img src="${site.icon}" alt="${site.name}" style="width:${iconWidth}; height:${iconHeight};">
+            <img src="${iconUrl}" alt="${site.name}" style="width:${iconWidth}; height:${iconHeight};" onerror="this.onerror=null;(function(img){var fb='${fallbackUrl}'; if(fb){img.src=fb; img.style.display='inline-block';}else{img.style.display='none'; var i=document.createElement('i'); i.className='${site.icon}'; i.style.fontSize='${iconWidth}'; img.parentNode.appendChild(i);}})(this);">
             ${badgeHtml}
           </div>`;
       } else {
@@ -676,11 +1207,73 @@
       }
 
       linkElement.innerHTML = `<a href="${url}" title="${site.name}" target="_blank" class="meta-id-tag">${iconHtml}<div></div></a>`;
+
+      // If we're using a favicon for this site (either custom site or global setting), try to fetch a cached base64 copy
+      if (useFavicon && faviconOrigin && !cachedFavicon) {
+        try {
+          const cacheKey = `favicon_${faviconOrigin}`;
+          // Find the img element we just created
+          const imgEl = linkElement.querySelector('img');
+          if (imgEl) {
+            // Fetch favicon as arraybuffer and convert to base64
+            GM.xmlHttpRequest({
+              method: 'GET',
+              url: `${faviconOrigin}/favicon.ico`,
+              responseType: 'arraybuffer',
+              onload: function(res) {
+                try {
+                  if (res.status === 200 && res.response) {
+                    const bytes = new Uint8Array(res.response);
+                    let binary = '';
+                    const chunk = 0x8000;
+                    for (let i = 0; i < bytes.length; i += chunk) {
+                      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+                    }
+                    const b64 = btoa(binary);
+                    const dataUrl = `data:image/x-icon;base64,${b64}`;
+                    setCachedApiResponse(cacheKey, dataUrl);
+                    imgEl.src = dataUrl;
+                  }
+                } catch (e) {
+                  // ignore and leave existing src
+                }
+              },
+              onerror: function() { /* ignore */ }
+            });
+          }
+        } catch (e) {
+          // noop
+        }
+      }
+
       return linkElement;
     }
 
+    function updateExternalLinkBadge(linkElement, site, releaseCount, hasError = false) {
+      if (!linkElement) return;
+      const container = linkElement.querySelector('.icon-container');
+      if (!container) return;
+
+      const existingBadge = container.querySelector('.release-count-badge');
+      if (existingBadge) existingBadge.remove();
+
+      if (!(site.type === SITE_TYPES.UNIT3D || (site.type === SITE_TYPES.TRACKER && API_KEYS[site.name])) || !SHOW_RELEASE_COUNT) {
+        return;
+      }
+
+      if (hasError) {
+        container.insertAdjacentHTML('beforeend', '<span class="release-count-badge error-badge">!</span>');
+        return;
+      }
+
+      if (releaseCount > 0 || config.SHOW_ICONS_WITHOUT_RELEASES) {
+        const badgeClass = releaseCount > 0 ? "release-count-badge" : "release-count-badge zero-badge";
+        container.insertAdjacentHTML('beforeend', `<span class="${badgeClass}">${releaseCount}</span>`);
+      }
+    }
+
     // New function to handle link preparation and collection
-    async function prepareLink(site, imdbId, tmdbId, mediaTitle) {
+    async function prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear, runApiChecks = true) {
       let searchUrl = "";
       if (imdbId != "" && site.imdbSearchUrl != "") {
         searchUrl = site.imdbSearchUrl.replace("$Id", imdbId);
@@ -738,8 +1331,9 @@
       }
 
       // Check for releases on sites with API support if API key is available
-      if (site.type !== SITE_TYPES.STANDARD && site.type !== SITE_TYPES.TRACKER && site.type !== SITE_TYPES.INDEXER && API_KEYS[site.name]) {
-        const result = await checkReleasesViaApi(site, imdbId, tmdbId);
+      // Allow UNIT3D and TRACKER sites to use API checks when an API key is present
+      if (runApiChecks && site.type !== SITE_TYPES.STANDARD && site.type !== SITE_TYPES.INDEXER && API_KEYS[site.name]) {
+        const result = await checkReleasesViaApi(site, imdbId, tmdbId, tvdbId, mediaTitleNoYear);
         if (result.hasReleases || config.SHOW_ICONS_WITHOUT_RELEASES) {
           return {
             site: site,
@@ -831,7 +1425,7 @@
 
       let imdbId = "";
       let tmdbId = "";
-      //let tvdbId = '';
+      let tvdbId = "";
       let isMovie = "";
 
       if (document.querySelector(".meta__tmdb") !== null) {
@@ -844,6 +1438,17 @@
       if (document.querySelector(".meta__imdb") !== null) {
         const imdbLi = document.querySelector(".meta__imdb");
         imdbId = imdbLi.children[0].href.split("/").pop();
+      }
+
+      if (document.querySelector(".meta__tvdb") !== null) {
+        const tvdbLi = document.querySelector(".meta__tvdb");
+        const tvdbLink = tvdbLi.querySelector("a");
+        if (tvdbLink && tvdbLink.href) {
+          const match = tvdbLink.href.match(/[?&]id=(\d+)/);
+          if (match) {
+            tvdbId = match[1];
+          }
+        }
       }
 
       if (document.querySelector(".meta__mal") !== null) {
@@ -866,6 +1471,10 @@
       const mediaTitle = document.querySelector(".meta__title")
         ? document.querySelector(".meta__title").outerText
         : document.querySelector(".movie-heading a").outerText;
+
+      const mediaTitleNoYear = mediaTitle
+        ? mediaTitle.replace(/\(\d{4}\)/, " ").replace(/\s+/g, " ").trim()
+        : "";
 
       if (isMovie === "") {
         isMovie = document
@@ -920,11 +1529,11 @@
       // Filter sites based on media type (movie or TV)
       let filteredSites = [];
       if (!isMovie) {
-        filteredSites = SITES.filter(
+        filteredSites = RUNTIME_SITES.filter(
           (site) => !MOVIE_ONLY_SITES.includes(site.name)
         );
       } else {
-        filteredSites = SITES.filter(
+        filteredSites = RUNTIME_SITES.filter(
           (site) => !TV_ONLY_SITES.includes(site.name)
         );
       }
@@ -934,8 +1543,31 @@
       const externalLinksUl = document.querySelector(".meta__ids");
 
       // Collect all enabled sites that should be displayed
+      const enabledSitesOrder = (() => {
+        const enabledOrder = ENABLED_SITES.slice();
+        const enabledSet = new Set(enabledOrder);
+        const runtimeUnit3dSites = RUNTIME_SITES
+          .filter(site => site.type === SITE_TYPES.UNIT3D && enabledSet.has(site.name))
+          .map(site => site.name);
+        const sortedUnit3dSites = Array.from(new Set(runtimeUnit3dSites))
+          .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+
+        if (!sortedUnit3dSites.length) {
+          return enabledOrder;
+        }
+
+        const nonUnit3dSites = enabledOrder.filter(name => !sortedUnit3dSites.includes(name));
+        const unit3dInsertIndex = enabledOrder.findIndex(name => sortedUnit3dSites.includes(name));
+        if (unit3dInsertIndex === -1) {
+          return enabledOrder;
+        }
+
+        return nonUnit3dSites.slice(0, unit3dInsertIndex)
+          .concat(sortedUnit3dSites, nonUnit3dSites.slice(unit3dInsertIndex));
+      })();
+
       const enabledSitesMap = {};
-      ENABLED_SITES.forEach((siteName, index) => {
+      enabledSitesOrder.forEach((siteName, index) => {
         enabledSitesMap[siteName] = index;
       });
 
@@ -943,6 +1575,10 @@
       const sitesToProcess = filteredSites.filter(site => {
         // First check if the site is enabled
         if (!ENABLED_SITES.includes(site.name)) {
+          return false;
+        }
+
+        if (site.name === "Letterboxd" && document.querySelector(".meta__letterboxd") !== null) {
           return false;
         }
 
@@ -969,9 +1605,66 @@
 
       // Process all sites in order and add links
       (async () => {
+        // If only-search-by-button option is enabled, show all icons without counts
+        // and use the button to trigger API checks.
+        if (config.ONLY_SEARCH_BY_BUTTON_PRESS) {
+          const initialLinkPromises = sitesToProcess.map(site =>
+            prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear, false)
+          );
+          const initialPreparedLinks = await Promise.all(initialLinkPromises);
+          const initialValidLinks = initialPreparedLinks.filter(link => link !== null);
+          initialValidLinks.sort((a, b) => {
+            const indexA = enabledSitesMap[a.site.name] !== undefined ? enabledSitesMap[a.site.name] : Infinity;
+            const indexB = enabledSitesMap[b.site.name] !== undefined ? enabledSitesMap[b.site.name] : Infinity;
+            return indexA - indexB;
+          });
+          const initialLinkElements = await Promise.all(
+            initialValidLinks.map(link => createExternalLink(link.url, link.site, 0, false, false))
+          );
+          initialLinkElements.forEach(linkElement => externalLinksUl.appendChild(linkElement));
+
+          const generic = document.createElement('a');
+          generic.href = '#';
+          generic.className = 'meta-id-tag generic-search-btn';
+          const iconSize = ICON_FONT_SIZE || '24px';
+          generic.innerHTML = ` <div class="icon-container"><i class="fa-solid fa-magnifying-glass" style="font-size:${iconSize};"></i></div>`;
+          externalLinksUl.appendChild(generic);
+
+          generic.addEventListener('click', async (e) => {
+            e.preventDefault();
+            generic.remove();
+
+            const existingLinks = externalLinksUl.querySelectorAll('.external-link-item');
+            const linkBySite = {};
+            existingLinks.forEach(link => {
+              if (link.dataset.site) linkBySite[link.dataset.site] = link;
+            });
+
+            sitesToProcess.forEach(site => {
+              prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear, true)
+                .then(result => {
+                  const linkElement = linkBySite[site.name];
+                  if (!linkElement || !result) return;
+                  const inner = linkElement.querySelector('a.meta-id-tag');
+                  if (inner && result.url) {
+                    inner.href = result.url;
+                    inner.title = site.name;
+                  }
+                  updateExternalLinkBadge(linkElement, site, result.count, result.error);
+                })
+                .catch(err => {
+                  console.error(`API check failed for ${site.name}`, err);
+                  const linkElement = linkBySite[site.name];
+                  updateExternalLinkBadge(linkElement, site, 0, true);
+                });
+            });
+          });
+          return;
+        }
+
         // Prepare all links (this creates an array of promises)
         const linkPromises = sitesToProcess.map(site =>
-          prepareLink(site, imdbId, tmdbId, mediaTitle)
+          prepareLink(site, imdbId, tmdbId, tvdbId, mediaTitle, mediaTitleNoYear, true)
         );
 
         // Wait for all link preparations to complete
@@ -988,10 +1681,8 @@
         });
 
         // Create and append links in the correct order
-        validLinks.forEach(link => {
-          const linkElement = createExternalLink(link.url, link.site, link.count, link.error);
-          externalLinksUl.appendChild(linkElement);
-        });
+        const linkElements = await Promise.all(validLinks.map(link => createExternalLink(link.url, link.site, link.count, link.error, true)));
+        linkElements.forEach(linkElement => externalLinksUl.appendChild(linkElement));
       })();
     })();
   })();
