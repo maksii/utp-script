@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         External Links on UNIT3D
 // @namespace    N/A
-// @version      0.9.9.1
+// @version      0.9.9.2
 // @description  Add links to other sites on the metadata section of a torrent item
 // @match        *://*/torrents/*
 // @match        *://*/requests/*
@@ -19,7 +19,6 @@
   // Default configuration
   const DEFAULT_CONFIG = {
     ENABLED_SITES: [
-      "KinoBaza",
       "Trakt",
       "Letterboxd",
       "Blutopia",
@@ -53,13 +52,22 @@
     USE_TRACKER_FAVICON: false, // When true, use https://<tracker-origin>/favicon.ico for tracker icons
   };
 
-  // Site Types
+  // Site Types (internal keys; display names for UI below)
   const SITE_TYPES = {
     UNIT3D: "UNIT3D",
     STANDARD: "standard",
     TRACKER: "tracker",
     INDEXER: "indexer",
     // Can add more types here in the future
+  };
+
+  // Display names for config UI (user-facing section headers)
+  const SITE_TYPE_LABELS = {
+    [SITE_TYPES.STANDARD]: "Metadata & Info Sites",
+    [SITE_TYPES.INDEXER]: "Indexer",
+    [SITE_TYPES.TRACKER]: "Tracker",
+    [SITE_TYPES.UNIT3D]: "UNIT3D",
+    CUSTOM_UNIT3D: "Custom UNIT3D Sites",
   };
 
   // Sites configuration
@@ -380,6 +388,19 @@
     const skipCacheWhenButtonPressChecked = config.SKIP_CACHE_WHEN_BUTTON_PRESS === true ? "checked" : "";
     const useTrackerFaviconChecked = config.USE_TRACKER_FAVICON === true ? "checked" : "";
 
+    // Mask secret fields in UI: show first 6 chars + ********, store full value in data-full-value for save
+    function maskSecret(v) {
+      if (!v) return '';
+      return v.length > 6 ? v.slice(0, 6) + '********' : '********';
+    }
+    function resolveSecretInput(input) {
+      const raw = input.value.trim();
+      const full = input.getAttribute('data-full-value') || '';
+      if (raw === '') return '';
+      if (raw === maskSecret(full)) return full;
+      return raw;
+    }
+
     // Define expected key order for trackers that require multiple credentials
     const TRACKER_KEY_ORDER = {
       "HDB": ["username", "passkey"],
@@ -393,8 +414,8 @@
       "RTF": ["apikey"]
     };
 
-    // Build tracker inputs with tracker-specific placeholders / multiple fields when needed
-    const trackerInputsHtml = sitesByType[SITE_TYPES.TRACKER] ? sitesByType[SITE_TYPES.TRACKER].map(site => {
+    // Build tracker inputs with tracker-specific placeholders / multiple fields when needed (sites shown alphabetically in UI)
+    const trackerInputsHtml = sitesByType[SITE_TYPES.TRACKER] ? [...sitesByType[SITE_TYPES.TRACKER]].sort((a, b) => a.name.localeCompare(b.name)).map(site => {
       const name = site.name;
       const lname = name.toLowerCase();
       // Default single input
@@ -437,8 +458,11 @@
       return `\n              <div style="margin-bottom:8px;">\n                <label>\n                  <input type="checkbox" value="${name}" ${ENABLED_SITES.includes(name) ? "checked" : ""}>\n                  ${name}\n                </label>\n                <br>\n                ${inputs}\n              </div>\n`;
     }).join('') : 'No tracker sites';
 
-    // Custom sites are stored separately and editable here; they are only shown in this panel.
-    const customSitesHtml = customSites && customSites.length ? customSites.map(site => {
+    // Custom sites are stored separately and editable here; they are only shown in this panel (alphabetically by display name).
+    const customSitesSorted = (customSites && customSites.length)
+      ? [...customSites].sort((a, b) => (a.name || (new URL(a.base)).hostname).localeCompare(b.name || (new URL(b.base)).hostname))
+      : [];
+    const customSitesHtml = customSitesSorted.length ? customSitesSorted.map(site => {
       const displayName = site.name || (new URL(site.base)).hostname;
       return `
         <div class="customSiteEntry" data-base="${site.base}" data-name="${displayName}">
@@ -446,155 +470,262 @@
             <input type="checkbox" value="${displayName}" ${ENABLED_SITES.includes(displayName) ? "checked" : ""}>
             ${displayName}
           </label>
-          <div style="font-size:12px;color:#ccc">${site.base}</div>
+          <div class="ext-links-muted">${site.base}</div>
           <div style="margin-top:4px;">
             <input type="text" placeholder="API Key" value="${API_KEYS[displayName] || ''}" class="apiKey" data-site="${displayName}">
             <button class="removeCustomSiteBtn" data-name="${displayName}" style="margin-left:8px;">Remove</button>
           </div>
         </div>
       `;
-    }).join('') : '<div style="font-size:12px;color:#ccc">No custom sites added yet.</div>';
+    }).join('') : '<div class="ext-links-muted">No custom sites added yet.</div>';
+
+    const sortSitesByName = (sites) => (sites || []).length ? [...(sites || [])].sort((a, b) => a.name.localeCompare(b.name)) : [];
+
+    const countEnabled = (sites) => (sites || []).filter(s => ENABLED_SITES.includes(s.name)).length;
+    const countMetadata = countEnabled(sitesByType[SITE_TYPES.STANDARD]);
+    const countIndexer = countEnabled(sitesByType[SITE_TYPES.INDEXER]);
+    const countTracker = countEnabled(sitesByType[SITE_TYPES.TRACKER]);
+    const countUnit3d = countEnabled(sitesByType[SITE_TYPES.UNIT3D]);
+    const countCustom = (customSites || []).filter(s => ENABLED_SITES.includes(s.name || (new URL(s.base)).hostname)).length;
+
+    const sectionStyles = "margin-bottom: 0; padding: 14px 16px 14px 14px; border-radius: 8px; background: var(--ext-surface);";
+    const summaryStyles = "cursor: pointer; font-weight: 600; font-size: 14px; padding: 12px 14px; border-radius: 8px; list-style: none; display: flex; align-items: center; gap: 8px; user-select: none; color: var(--ext-text);";
+    const summaryMarker = "<span class=\"ext-links-chevron\" aria-hidden=\"true\">▶</span>";
 
     const html = `
-      <div>
-        <h2>Configure External Links</h2>
-        <button id="saveConfigBtn" style="margin-bottom: 20px;">Save</button>
-
-        <!-- First row: Settings checkboxes -->
-        <div style="margin-bottom: 20px; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-          <h3 style="margin-top: 0;">Settings</h3>
-          <div style="margin-bottom: 10px;">
-            <label>
-              <input type="checkbox" id="showReleaseCount" ${showReleaseCount}>
-              Show release count badges
-            </label>
-          </div>
-          <div style="margin-bottom: 10px;">
-            <label>
-              <input type="checkbox" id="enableApiSupport" ${enableApiSupport}>
-              Enable API support
-            </label>
-          </div>
-          <div style="margin-bottom: 10px;">
-            <label>
-              <input type="checkbox" id="showIconsWithoutReleases" ${showIconsWithoutReleases}>
-              Show icons even when no releases are found
-            </label>
-          </div>
-          <div style="margin-bottom: 10px;">
-            <label>
-              <input type="checkbox" id="onlySearchByButton" ${onlySearchChecked}>
-              Only search by button press (show generic icon until clicked)
-            </label>
-          </div>
-          <div style="margin-bottom: 10px; margin-left: 18px;">
-            <label>
-              <input type="checkbox" id="skipCacheWhenButtonPress" ${skipCacheWhenButtonPressChecked}>
-              Skip API cache when button press is required
-            </label>
-          </div>
-          <div style="margin-bottom: 10px;">
-            <label>
-              <input type="checkbox" id="useTrackerFavicon" ${useTrackerFaviconChecked}>
-              Use tracker favicon (https://domain/favicon.ico) for tracker icons
-            </label>
-          </div>
+      <style>
+        .ext-links-config {
+          --ext-bg: #181818;
+          --ext-surface: #303030;
+          --ext-border: #404040;
+          --ext-text: #dddddd;
+          --ext-text-muted: #bababa;
+          --ext-primary: #59b329;
+          --ext-primary-hover: #6bc235;
+          --ext-accent: #865be9;
+          --ext-radius: 8px;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          font-size: 13px;
+          color: var(--ext-text);
+          background: var(--ext-bg);
+          border: 1px solid var(--ext-border);
+          border-radius: var(--ext-radius);
+          box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+          max-height: 85vh;
+          overflow-y: auto;
+          min-width: 90vw;
+          max-width: 960px;
+          padding: 24px;
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          z-index: 9999;
+        }
+        .ext-links-config * { box-sizing: border-box; }
+        .ext-links-config h2 {
+          margin: 0;
+          font-size: 20px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+        }
+        .ext-links-config__header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 16px;
+          margin-bottom: 24px;
+          padding-bottom: 20px;
+          border-bottom: 1px solid var(--ext-border);
+        }
+        .ext-links-config #saveConfigBtn {
+          padding: 10px 22px;
+          background: #5cb579;
+          color: #181818;
+          border: none;
+          border-radius: 8px;
+          font-weight: 600;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        .ext-links-config #saveConfigBtn:hover {
+          background: #6bc289;
+          filter: brightness(1.05);
+        }
+        .ext-links-section { margin-bottom: 12px; }
+        .ext-links-section summary::-webkit-details-marker { display: none; }
+        .ext-links-section summary .ext-links-chevron {
+          transition: transform 0.2s;
+          font-size: 10px;
+          color: var(--ext-text-muted);
+        }
+        .ext-links-section[open] summary .ext-links-chevron { transform: rotate(90deg); }
+        .ext-links-section summary:hover { background: rgba(255,255,255,0.06); }
+        .ext-links-section__body { padding: 14px 0 4px 0; }
+        .ext-links-section__body > div { margin-bottom: 10px; }
+        .ext-links-config label { cursor: pointer; color: var(--ext-text); }
+        .ext-links-config input[type="text"] {
+          background: var(--ext-bg);
+          border: 1px solid var(--ext-border);
+          border-radius: 8px;
+          color: var(--ext-text);
+          padding: 8px 12px;
+          width: 100%;
+          max-width: 320px;
+        }
+        .ext-links-config input[type="text"]:focus {
+          outline: none;
+          border-color: var(--ext-text-muted);
+        }
+        .ext-links-config input[type="checkbox"] { margin-right: 8px; accent-color: #3498db; }
+        .ext-links-config button:not(#saveConfigBtn) {
+          background: var(--ext-surface);
+          border: 1px solid var(--ext-border);
+          color: var(--ext-text);
+          padding: 8px 14px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 13px;
+        }
+        .ext-links-config button:not(#saveConfigBtn):hover {
+          background: #404040;
+          border-color: var(--ext-text-muted);
+        }
+        .ext-links-config .removeCustomSiteBtn { margin-left: 8px; }
+        .ext-links-config .customSiteEntry {
+          margin-bottom: 14px;
+          padding-bottom: 14px;
+          border-bottom: 1px solid var(--ext-border);
+        }
+        .ext-links-config .customSiteEntry:last-child { border-bottom: none; }
+        .ext-links-config .ext-links-muted { color: var(--ext-text-muted); font-size: 12px; }
+        .ext-links-config::-webkit-scrollbar { width: 12px; }
+        .ext-links-config::-webkit-scrollbar-track { background: #2a2a2a; border-radius: 6px; }
+        .ext-links-config::-webkit-scrollbar-thumb { background: #606060; border-radius: 6px; border: 2px solid #2a2a2a; }
+        .ext-links-config::-webkit-scrollbar-thumb:hover { background: #707070; }
+        .ext-links-section-badge {
+          margin-left: auto;
+          min-width: 20px;
+          padding: 2px 8px;
+          font-size: 12px;
+          font-weight: 600;
+          line-height: 1.2;
+          text-align: center;
+          background: var(--ext-border);
+          color: var(--ext-text);
+          border-radius: 10px;
+        }
+      </style>
+      <div class="ext-links-config">
+        <div class="ext-links-config__header">
+          <h2>Configure External Links</h2>
+          <button type="button" id="saveConfigBtn">Save</button>
         </div>
 
-        <!-- Second row: STANDARD and INDEXER sites -->
-        <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-          <!-- STANDARD sites -->
-          <div style="flex: 1; margin-right: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-            <h3 style="margin-top: 0;">STANDARD</h3>
-            ${sitesByType[SITE_TYPES.STANDARD] ? sitesByType[SITE_TYPES.STANDARD].map(site => `
-              <div>
-                <label>
-                  <input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}>
-                  ${site.name}
-                </label>
-              </div>
-            `).join("") : "No standard sites"}
+        <details class="ext-links-section" open>
+          <summary style="${summaryStyles}">${summaryMarker}Settings</summary>
+          <div class="ext-links-section__body" style="${sectionStyles}">
+            <div><label><input type="checkbox" id="showReleaseCount" ${showReleaseCount}> Show release count badges</label></div>
+            <div><label><input type="checkbox" id="enableApiSupport" ${enableApiSupport}> Enable API support</label></div>
+            <div><label><input type="checkbox" id="showIconsWithoutReleases" ${showIconsWithoutReleases}> Show icons even when no releases are found</label></div>
+            <div><label><input type="checkbox" id="onlySearchByButton" ${onlySearchChecked}> Only search by button press (show generic icon until clicked)</label></div>
+            <div style="margin-left: 18px;"><label><input type="checkbox" id="skipCacheWhenButtonPress" ${skipCacheWhenButtonPressChecked}> Skip API cache when button press is required</label></div>
+            <div><label><input type="checkbox" id="useTrackerFavicon" ${useTrackerFaviconChecked}> Use tracker favicon (https://domain/favicon.ico) for tracker icons</label></div>
           </div>
+        </details>
 
-          <!-- INDEXER sites -->
-          <div style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-            <h3 style="margin-top: 0;">INDEXER</h3>
-            ${sitesByType[SITE_TYPES.INDEXER] ? sitesByType[SITE_TYPES.INDEXER].map(site => `
-              <div>
-                <label>
-                  <input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}>
-                  ${site.name}
-                </label>
+        <details class="ext-links-section">
+          <summary style="${summaryStyles}">${summaryMarker}${SITE_TYPE_LABELS[SITE_TYPES.STANDARD]}<span class="ext-links-section-badge">${countMetadata}</span></summary>
+          <div class="ext-links-section__body" style="${sectionStyles}">
+            ${(sortSitesByName(sitesByType[SITE_TYPES.STANDARD])).map(site => `
+              <div><label><input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}> ${site.name}</label></div>
+            `).join("") || "<span style=\"color: var(--ext-text-muted);\">No sites</span>"}
+          </div>
+        </details>
+
+        <details class="ext-links-section">
+          <summary style="${summaryStyles}">${summaryMarker}${SITE_TYPE_LABELS[SITE_TYPES.INDEXER]}<span class="ext-links-section-badge">${countIndexer}</span></summary>
+          <div class="ext-links-section__body" style="${sectionStyles}">
+            ${(sortSitesByName(sitesByType[SITE_TYPES.INDEXER])).map(site => `
+              <div style="margin-bottom: 10px;">
+                <label><input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}> ${site.name}</label>
                 <br>
                 <input type="text" placeholder="Base URL" value="${config.INDEXER_BASE_URLS[site.baseUrlConfigKey] || ''}" class="indexerBaseUrl" data-site="${site.name}" data-config-key="${site.baseUrlConfigKey}">
               </div>
-            `).join("") : "No indexer sites"}
+            `).join("") || "<span style=\"color: var(--ext-text-muted);\">No indexer sites</span>"}
           </div>
-        </div>
+        </details>
 
-        <!-- Third row: TRACKER and UNIT3D sites -->
-        <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-          <!-- TRACKER sites -->
-          <div style="flex: 1; margin-right: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-            <h3 style="margin-top: 0;">TRACKER</h3>
+        <details class="ext-links-section">
+          <summary style="${summaryStyles}">${summaryMarker}${SITE_TYPE_LABELS[SITE_TYPES.TRACKER]}<span class="ext-links-section-badge">${countTracker}</span></summary>
+          <div class="ext-links-section__body" style="${sectionStyles}">
             ${trackerInputsHtml}
           </div>
+        </details>
 
-          <div style="flex: 1; display: flex; gap: 10px;">
-            <!-- UNIT3D sites -->
-            <div style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-              <h3 style="margin-top: 0;">UNIT3D</h3>
-              ${sitesByType[SITE_TYPES.UNIT3D] ? sitesByType[SITE_TYPES.UNIT3D].map(site => `
-                <div>
-                  <label style="min-width: 120px;display: inline-block;">
-                    <input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}>
-                    ${site.name}
-                  </label>
-                  <input type="text" placeholder="API Key" value="${API_KEYS[site.name] || ''}" class="apiKey" data-site="${site.name}">
-                </div>
-              `).join("") : "No UNIT3D sites"}
-            </div>
-
-            <!-- Custom UNIT3D sites -->
-            <div style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-              <h3 style="margin-top: 0;">Custom UNIT3D Sites</h3>
-              <div style="margin-bottom:8px;">
-                <input type="text" id="newCustomSiteBase" placeholder="https://reelflix.xyz/" style="width:70%; margin-right:8px;">
-                <button id="addCustomSiteBtn">Add Site</button>
+        <details class="ext-links-section">
+          <summary style="${summaryStyles}">${summaryMarker}${SITE_TYPE_LABELS[SITE_TYPES.UNIT3D]}<span class="ext-links-section-badge">${countUnit3d}</span></summary>
+          <div class="ext-links-section__body" style="${sectionStyles}">
+            ${(sortSitesByName(sitesByType[SITE_TYPES.UNIT3D])).map(site => `
+              <div style="margin-bottom: 10px;">
+                <label style="min-width: 120px; display: inline-block;"><input type="checkbox" value="${site.name}" ${ENABLED_SITES.includes(site.name) ? "checked" : ""}> ${site.name}</label>
+                <input type="text" placeholder="API Key" value="${API_KEYS[site.name] || ''}" class="apiKey" data-site="${site.name}">
               </div>
-              <div id="customSitesList">
-                ${customSitesHtml}
-              </div>
-            </div>
+            `).join("") || "<span style=\"color: var(--ext-text-muted);\">No UNIT3D sites</span>"}
           </div>
-        </div>
+        </details>
+
+        <details class="ext-links-section">
+          <summary style="${summaryStyles}">${summaryMarker}${SITE_TYPE_LABELS.CUSTOM_UNIT3D}<span class="ext-links-section-badge">${countCustom}</span></summary>
+          <div class="ext-links-section__body" style="${sectionStyles}">
+            <div style="margin-bottom: 12px;">
+              <input type="text" id="newCustomSiteBase" placeholder="https://example.xyz/" style="width: 70%; margin-right: 8px;">
+              <button type="button" id="addCustomSiteBtn">Add Site</button>
+            </div>
+            <div id="customSitesList">${customSitesHtml}</div>
+          </div>
+        </details>
       </div>
     `;
 
     const configDiv = document.createElement("div");
     configDiv.innerHTML = html;
-    configDiv.style.position = "fixed";
-    configDiv.style.top = "10%";
-    configDiv.style.left = "50%";
-    configDiv.style.transform = "translateX(-50%)";
-    configDiv.style.backgroundColor = "#272323e3";
-    configDiv.style.padding = "20px";
-    configDiv.style.border = "1px solid black";
-    configDiv.style.zIndex = "9999";
-    configDiv.style.maxHeight = "85wh";
-    configDiv.style.overflowY = "auto";
-    configDiv.style.minWidth = "85vw"; // Make the settings wider (960px)
+    configDiv.style.cssText = "position: fixed; inset: 0; z-index: 9998; display: flex; align-items: center; justify-content: center; background: #181818f5; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); padding: 20px;";
     document.body.appendChild(configDiv);
 
-    document
-      .getElementById("saveConfigBtn")
+    // Mask API key / token / passkey fields: store full value, show first 6 chars + ********
+    configDiv.querySelectorAll('input.apiKey').forEach((input) => {
+      const v = input.value;
+      if (v) {
+        input.setAttribute('data-full-value', v);
+        input.value = maskSecret(v);
+      }
+    });
+
+    function closeModal() {
+      if (document.body.contains(configDiv)) {
+        document.body.removeChild(configDiv);
+        document.removeEventListener("keydown", closeOnEscape);
+      }
+    }
+    function closeOnEscape(e) {
+      if (e.key === "Escape") closeModal();
+    }
+    configDiv.addEventListener("click", (e) => {
+      if (e.target === configDiv) closeModal();
+    });
+    document.addEventListener("keydown", closeOnEscape);
+
+    configDiv
+      .querySelector("#saveConfigBtn")
       .addEventListener("click", async () => {
         const checkboxes = configDiv.querySelectorAll('input[type="checkbox"]:not(#showReleaseCount):not(#enableApiSupport):not(#showIconsWithoutReleases):not(#onlySearchByButton):not(#skipCacheWhenButtonPress):not(#useTrackerFavicon)');
         const newEnabledSites = Array.from(checkboxes)
           .filter((checkbox) => checkbox.checked)
           .map((checkbox) => checkbox.value);
 
-        // Collect API keys (support multiple inputs per tracker)
+        // Collect API keys (support multiple inputs per tracker); resolve masked fields to full value
         const apiKeyInputs = configDiv.querySelectorAll('input.apiKey');
         const grouped = {};
 
@@ -602,7 +733,7 @@
           const site = input.getAttribute('data-site');
           if (!site) return;
           const keyName = input.getAttribute('data-key') || 'key';
-          const value = input.value.trim();
+          const value = resolveSecretInput(input);
           if (!grouped[site]) grouped[site] = {};
           if (value) grouped[site][keyName] = value;
         });
@@ -676,7 +807,7 @@
         await saveConfig(config);
         // ensure custom sites saved too (already saved above, but reload to pick up)
         alert("Configuration saved! The page will now reload.");
-        document.body.removeChild(configDiv);
+        closeModal();
         window.location.reload();
       });
 
@@ -699,7 +830,7 @@
           entry.className = 'customSiteEntry';
           entry.setAttribute('data-base', normalized);
           entry.setAttribute('data-name', displayName);
-          entry.innerHTML = `\n            <label>\n              <input type="checkbox" value="${displayName}" checked>\n              ${displayName}\n            </label>\n            <div style="font-size:12px;color:#ccc">${normalized}</div>\n            <div style="margin-top:4px;">\n              <input type="text" placeholder="API Key" value="" class="apiKey" data-site="${displayName}">\n              <button class="removeCustomSiteBtn" data-name="${displayName}" style="margin-left:8px;">Remove</button>\n            </div>`;
+          entry.innerHTML = `\n            <label>\n              <input type="checkbox" value="${displayName}" checked>\n              ${displayName}\n            </label>\n            <div class="ext-links-muted">${normalized}</div>\n            <div style="margin-top:4px;">\n              <input type="text" placeholder="API Key" value="" class="apiKey" data-site="${displayName}">\n              <button class="removeCustomSiteBtn" data-name="${displayName}" style="margin-left:8px;">Remove</button>\n            </div>`;
           customList.appendChild(entry);
           // wire remove button
           const rem = entry.querySelector('.removeCustomSiteBtn');
