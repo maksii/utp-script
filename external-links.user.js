@@ -264,7 +264,7 @@
         imdbSearchUrl: 'https://eiga.moi/torrents?imdb=$Id',
         tmdbSearchUrl: 'https://eiga.moi/torrents?tmdb=$Id', //Not working
         nameSearchUrl: 'https://eiga.moi/torrents?name=$Id',
-        type: SITE_TYPES.TRACKER,
+      type: SITE_TYPES.UNIT3D,
     },
     {
         name: 'Cinemaggedon',
@@ -424,6 +424,8 @@
         inputs = `\n                <input type="text" placeholder="BHD token" value="${tokenVal}" class="apiKey" data-site="${name}" data-key="token" style="width:100%; margin-top:4px;">\n`;
       } else if (lname.includes('btn') || lname.includes('broadcasthe')) {
         inputs = `\n                <input type="text" placeholder="BTN token" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="token" style="width:100%; margin-top:4px;">\n`;
+      } else if (lname.includes('pterclub')) {
+        inputs = '';
       } else if (lname.includes('morethantv') || lname.includes('mtv')) {
         inputs = `\n                <input type="text" placeholder="MoreThanTV API key" value="${API_KEYS[name] || ''}" class="apiKey" data-site="${name}" data-key="apikey" style="width:100%; margin-top:4px;">\n`;
       } else if (lname === 'anthelion' || lname.includes('anthelion')) {
