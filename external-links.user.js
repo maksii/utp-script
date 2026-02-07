@@ -1026,8 +1026,10 @@
       });
     }
 
+    const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
     // Function to create an external link element
-    function createExternalLink(url, site, releaseCount, hasError = false) {
+    async function createExternalLink(url, site, releaseCount, hasError = false) {
       let linkElement = document.createElement("a");
       let iconHtml = "";
       let image = site.icon.endsWith(".svg") || site.icon.endsWith(".png");
@@ -1055,16 +1057,15 @@
       // otherwise optionally use favicon when global setting enabled for tracker/unit3d types
       let iconUrl = site.icon;
       let useFavicon = false;
+      let faviconOrigin = "";
       try {
         if (site.base) {
-          const origin = new URL(site.base).origin;
-          iconUrl = `${origin}/favicon.ico`;
+          faviconOrigin = new URL(site.base).origin;
           useFavicon = true;
           image = true;
         } else if ((site.type === SITE_TYPES.TRACKER || site.type === SITE_TYPES.UNIT3D) && config.USE_TRACKER_FAVICON) {
           const base = (site.nameSearchUrl || site.imdbSearchUrl || site.tmdbSearchUrl || "").replace('$Id', '');
-          const origin = new URL(base).origin;
-          iconUrl = `${origin}/favicon.ico`;
+          faviconOrigin = new URL(base).origin;
           useFavicon = true;
           image = true;
         }
@@ -1073,7 +1074,17 @@
       }
 
       const fallbackUrl = (site.icon && site.icon.startsWith && site.icon.startsWith('http')) ? site.icon : '';
-      if (iconUrl && iconUrl.startsWith("http") && image) {
+      let cachedFavicon = null;
+      if (useFavicon && faviconOrigin) {
+        const cacheKey = `favicon_${faviconOrigin}`;
+        cachedFavicon = await getCachedApiResponse(cacheKey);
+        if (cachedFavicon) {
+          iconUrl = cachedFavicon;
+        } else {
+          iconUrl = fallbackUrl || TRANSPARENT_PIXEL;
+        }
+      }
+      if (iconUrl && (iconUrl.startsWith("http") || iconUrl.startsWith("data:")) && image) {
         iconHtml = `
           <div class="icon-container">
             <img src="${iconUrl}" alt="${site.name}" style="width:${iconWidth}; height:${iconHeight};" onerror="this.onerror=null;(function(img){var fb='${fallbackUrl}'; if(fb){img.src=fb; img.style.display='inline-block';}else{img.style.display='none'; var i=document.createElement('i'); i.className='${site.icon}'; i.style.fontSize='${iconWidth}'; img.parentNode.appendChild(i);}})(this);">
@@ -1090,45 +1101,37 @@
       linkElement.innerHTML = `<a href="${url}" title="${site.name}" target="_blank" class="meta-id-tag">${iconHtml}<div></div></a>`;
 
       // If we're using a favicon for this site (either custom site or global setting), try to fetch a cached base64 copy
-      if (useFavicon) {
+      if (useFavicon && faviconOrigin && !cachedFavicon) {
         try {
-          const origin = site.base ? new URL(site.base).origin : new URL((site.nameSearchUrl || site.imdbSearchUrl || site.tmdbSearchUrl || "").replace('$Id', '')).origin;
-          const cacheKey = `favicon_${origin}`;
+          const cacheKey = `favicon_${faviconOrigin}`;
           // Find the img element we just created
           const imgEl = linkElement.querySelector('img');
           if (imgEl) {
-            // Check cache first
-            getCachedApiResponse(cacheKey).then(cached => {
-              if (cached) {
-                imgEl.src = cached;
-                return;
-              }
-              // Fetch favicon as arraybuffer and convert to base64
-              GM.xmlHttpRequest({
-                method: 'GET',
-                url: `${origin}/favicon.ico`,
-                responseType: 'arraybuffer',
-                onload: function(res) {
-                  try {
-                    if (res.status === 200 && res.response) {
-                      const bytes = new Uint8Array(res.response);
-                      let binary = '';
-                      const chunk = 0x8000;
-                      for (let i = 0; i < bytes.length; i += chunk) {
-                        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-                      }
-                      const b64 = btoa(binary);
-                      const dataUrl = `data:image/x-icon;base64,${b64}`;
-                      setCachedApiResponse(cacheKey, dataUrl);
-                      imgEl.src = dataUrl;
+            // Fetch favicon as arraybuffer and convert to base64
+            GM.xmlHttpRequest({
+              method: 'GET',
+              url: `${faviconOrigin}/favicon.ico`,
+              responseType: 'arraybuffer',
+              onload: function(res) {
+                try {
+                  if (res.status === 200 && res.response) {
+                    const bytes = new Uint8Array(res.response);
+                    let binary = '';
+                    const chunk = 0x8000;
+                    for (let i = 0; i < bytes.length; i += chunk) {
+                      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
                     }
-                  } catch (e) {
-                    // ignore and leave existing src
+                    const b64 = btoa(binary);
+                    const dataUrl = `data:image/x-icon;base64,${b64}`;
+                    setCachedApiResponse(cacheKey, dataUrl);
+                    imgEl.src = dataUrl;
                   }
-                },
-                onerror: function() { /* ignore */ }
-              });
-            }).catch(() => {});
+                } catch (e) {
+                  // ignore and leave existing src
+                }
+              },
+              onerror: function() { /* ignore */ }
+            });
           }
         } catch (e) {
           // noop
@@ -1451,10 +1454,8 @@
               const indexB = enabledSitesMap[b.site.name] !== undefined ? enabledSitesMap[b.site.name] : Infinity;
               return indexA - indexB;
             });
-            validLinks.forEach(link => {
-              const linkElement = createExternalLink(link.url, link.site, link.count, link.error);
-              externalLinksUl.appendChild(linkElement);
-            });
+            const linkElements = await Promise.all(validLinks.map(link => createExternalLink(link.url, link.site, link.count, link.error)));
+            linkElements.forEach(linkElement => externalLinksUl.appendChild(linkElement));
           });
           return;
         }
@@ -1478,10 +1479,8 @@
         });
 
         // Create and append links in the correct order
-        validLinks.forEach(link => {
-          const linkElement = createExternalLink(link.url, link.site, link.count, link.error);
-          externalLinksUl.appendChild(linkElement);
-        });
+        const linkElements = await Promise.all(validLinks.map(link => createExternalLink(link.url, link.site, link.count, link.error)));
+        linkElements.forEach(linkElement => externalLinksUl.appendChild(linkElement));
       })();
     })();
   })();
