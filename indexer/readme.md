@@ -5,7 +5,7 @@ This repository contains different versions of indexer configurations for [UTOPI
 ## Available Versions
 
 ### 1. utopia.yml (Current official Version)
-The current version that's included in the official Prowlarr repository. This is based on the file at [Prowlarr/Indexers](https://github.com/Prowlarr/Indexers/blob/master/definitions/v10/utopia.yml).
+The current version that's included in the official Prowlarr repository. This is based on the file at [Prowlarr/Indexers](https://github.com/Prowlarr/Indexers/blob/master/definitions/v11/utopia.yml).
 
 ### 2. utp-exp_base.yml (Stable Enhanced Version)
 A modestly enhanced version with quality-of-life improvements while maintaining stability.
