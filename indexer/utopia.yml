@@ -60,7 +60,7 @@ settings:
     default: "If you stop visiting the site or downloading torrents your account will be automatically deactivated after 180 days."
 
 login:
-  path: /api/torrents
+  path: api/torrents
   method: get
   inputs: {} # TODO: remove in v10
   error:
@@ -71,12 +71,11 @@ login:
 
 search:
   paths:
-    # https://github.com/HDInnovations/UNIT3D-Community-Edition/wiki/Torrent-API-(UNIT3D-v8.x.x)
-    # https://github.com/HDInnovations/UNIT3D-Community-Edition/blob/master/app/Http/Controllers/API/TorrentController.php#L476
+    # https://hdinnovations.github.io/UNIT3D/torrent_api.html
+    # https://github.com/HDInnovations/UNIT3D/blob/master/app/Http/Controllers/API/TorrentController.php#L657
     - path: api/torrents/filter
       response:
         type: json
-        noResultsMessage: "No Torrents Found"
 
   headers:
     Authorization: ["Bearer {{ .Config.apikey }}"]
@@ -146,8 +145,13 @@ search:
           args: ["(?i)(Науково фантастичний)", "Науково_фантастичний"]
         - name: re_replace
           args: ["(?i)(Політика та війна)", "Політика_та_війна"]
+    _internal:
+      selector: internal
+      case:
+        False: "{{ .False }}"
+        True: "{{ .True }}"
     description:
-      text: "{{ .Result.genre }}"
+      text: "{{ if .Result._internal }}Internal{{ else }}{{ end }}{{ if and .Result._internal .Result.genre }} | {{ else }}{{ end }}{{ .Result.genre }}"
     seeders:
       selector: seeders
     leechers:
@@ -195,4 +199,4 @@ search:
     minimumseedtime:
       # 3 days (as seconds = 3 x 24 x 60 x 60)
       text: 259200
-# json UNIT3D 8.3.0
+# json UNIT3D 9.1.5
