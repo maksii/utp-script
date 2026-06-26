@@ -16,7 +16,8 @@ Place `utp-exp.yml` in Prowlarr's custom definitions folder (`Definitions/Custom
 - **`addukrainiantotitle` renamed to `add_ukrainian_to_title`** (snake_case). When enabled it now inserts `UKR` immediately after the resolution rather than appending it to the very end of the title.
 - **`add_releasegroup_by_uploader`** *(new, default `true`)* — appends the uploader name as the release group when a release has none, improving custom-format detection. Also fires for dotted names containing a hyphenated token (e.g. `…WEB-DL.x264`), and only when an uploader is actually present.
 - **`fix_tv_year`** *(new, default `true`)* — normalises a year next to the season token to the first season's release year (e.g. `Show S01 2021` → `Show 2019 S01`). Only a year adjacent to the season is touched, and only real `19xx`/`20xx` years, so resolutions (`1080p`, `2160p`, `4320p`) and year-named shows (`1923`, `2049`) are never altered. Multi-episode tokens (`S01E01E02`) are recognised.
-- **Release tidy-ups** — `BDRemux` → `BluRay REMUX`, `BDRip` → `BluRay`; double spaces are collapsed and the title is trimmed.
+- **`normalize_bluray_source_tags`** *(new, default `true`)* — renames `BDRemux` → `BluRay REMUX` and `BDRip` → `BluRay` so Sonarr/Radarr parse the source correctly; disable to keep the tracker's original tokens.
+- **Release tidy-ups** — double spaces are collapsed and leading/trailing whitespace and dangling separators are trimmed. Always on: pure hygiene, no setting (nothing legitimate is removed).
 
 ### MediaInfo language detection *(new)*
 Parses languages from each torrent's MediaInfo (`mediainfo` selector) into `audio_languages` and `subtitle_languages`, each inserted after the resolution and gated by its own toggle.
@@ -40,6 +41,7 @@ Parses languages from each torrent's MediaInfo (`mediainfo` selector) into `audi
 | add UKR after resolution | `addukrainiantotitle`: `false` | `add_ukrainian_to_title`: `false` |
 | `add_releasegroup_by_uploader` | — | `true` |
 | `fix_tv_year` | — | `true` |
+| `normalize_bluray_source_tags` | — | `true` |
 | `use_mediainfo_audio_languages` | — | `true` |
 | `use_mediainfo_subtitle_languages` | — | `true` |
 

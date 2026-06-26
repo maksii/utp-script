@@ -36,7 +36,7 @@ settings:
     default: false
   - name: add_ukrainian_to_title
     type: checkbox
-    label: Add UKR to end of all titles to improve language detection by Sonarr and Radarr.
+    label: Add UKR after the resolution to improve language detection by Sonarr and Radarr.
     default: false
   - name: use_mediainfo_audio_languages
     type: checkbox
@@ -53,6 +53,10 @@ settings:
   - name: fix_tv_year
     type: checkbox
     label: Replace TV year with the year of the first season
+    default: true
+  - name: normalize_bluray_source_tags
+    type: checkbox
+    label: Rename BDRemux/BDRip source tags to BluRay REMUX/BluRay to improve source detection by Sonarr and Radarr
     default: true
   - name: sort
     type: select
@@ -187,10 +191,10 @@ search:
           args: ["(S\\d+(?:E\\d+)*)(\\s+)((?:19|20)\\d{2}(?:-(?:19|20)\\d{2})?)\\b", "{{ if and (.Config.fix_tv_year) (eq .Result.category_name \"TV\") (.Result.release_year) }}{{ .Result.release_year }}$2$1{{ else }}$1$2$3{{ end }}"] # TV: a year right AFTER the season is the season-year - move the first-season year before the season (S01 2021 -> 2019 S01). Only a year adjacent to the season is touched, so a year-named show (1923, 2049) is never clobbered
         - name: re_replace
           args: ["(?<=\\S\\s)((?:19|20)\\d{2}(?:-(?:19|20)\\d{2})?)(\\s+S\\d+(?:E\\d+)*)\\b", "{{ if and (.Config.fix_tv_year) (eq .Result.category_name \"TV\") (.Result.release_year) }}{{ .Result.release_year }}$2{{ else }}$1$2{{ end }}"] # TV: a year just BEFORE the season (and not the first title token) -> normalise to first-season year in place; the lookbehind keeps a leading year-name like 1923 untouched
-        - name: replace
-          args: ["BDRemux", "BluRay REMUX"]
-        - name: replace
-          args: ["BDRip", "BluRay"]
+        - name: re_replace
+          args: ["BDRemux", "{{ if .Config.normalize_bluray_source_tags }}BluRay REMUX{{ else }}BDRemux{{ end }}"] # Gated source-tag rename; the {{ else }} keeps it a no-op (not a verbatim leak) when the toggle is off
+        - name: re_replace
+          args: ["BDRip", "{{ if .Config.normalize_bluray_source_tags }}BluRay{{ else }}BDRip{{ end }}"] # Gated source-tag rename
         - name: re_replace
           args: ["\\s{2,}", " "] # Collapse any double spaces created by the inserts above
         - name: re_replace
@@ -245,7 +249,7 @@ search:
     grabs:
       selector: times_completed
     date:
-      # "created_at": "2021-10-18T00:34:50.000000Z" is returned by Newtonsoft.Json.Linq as 18/10/2021 00:34:50
+      # "created_at": "2021-10-18T00:34:50.000000Z" is returned by Newtonsoft.Json.Linq as 10/18/2021 00:34:50 (MM/dd/yyyy, InvariantCulture)
       selector: created_at
       filters:
         - name: append
