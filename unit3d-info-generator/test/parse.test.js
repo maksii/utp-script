@@ -13,13 +13,13 @@ const path = require('path');
 // --- load Config/Utils/DataValidator/MediaInfoParser from src -----------------
 const MODULES = path.join(__dirname, '..', 'src', 'modules');
 let src = '';
-for (const name of ['Config', 'Utils', 'DataValidator', 'MediaInfoParser']) {
+for (const name of ['Config', 'Utils', 'DataValidator', 'MediaInfoParser', 'UIHandler']) {
     src += fs.readFileSync(path.join(MODULES, name + '.js'), 'utf8').replace(/export\s+/g, '') + '\n';
 }
-src += 'module.exports = { Config, Utils, DataValidator, MediaInfoParser };';
+src += 'module.exports = { Config, Utils, DataValidator, MediaInfoParser, UIHandler };';
 const mod = { exports: {} };
 new Function('module', 'console', src)(mod, { log() {}, error() {} });
-const { Config, Utils, DataValidator, MediaInfoParser } = mod.exports;
+const { Config, Utils, DataValidator, MediaInfoParser, UIHandler } = mod.exports;
 
 // --- tiny harness -------------------------------------------------------------
 let passed = 0;
@@ -37,6 +37,9 @@ const config = new Config();
 const utils = new Utils(config);
 const validator = new DataValidator();
 const parser = new MediaInfoParser(validator, utils, config);
+// statusOf/buildHtml are DOM-free (the comment in UIHandler says so), so we can
+// construct it here and exercise the validation status logic without a browser.
+const uiHandler = new UIHandler(parser, utils, config, validator);
 
 // CRLF fixture: General + Video (no Language) + 2 Audio + 2 Text + Menu.
 const CRLF = [
@@ -180,6 +183,24 @@ check('charDiff unrelated strings -> distance >= 3 (not a near-miss)', dFar.dist
 check('charDiff segments reconstruct both inputs',
     d1.aSeg.map(s => s.text).join('') === 'Ukrainian | AC3 | 5.1'
     && d1.bSeg.map(s => s.text).join('') === 'Ukrainian | AC-3 | 5.1');
+
+// 12. statusOf: a missing title on audio/subs is an ERROR (not "n/a"); video stays neutral.
+check('no-title audio -> error', uiHandler.statusOf({ type: 'Audio', title: '', format: 'English | AC-3 | 5.1' }).cls === 'bad');
+check('no-title subtitle -> error', uiHandler.statusOf({ type: 'Subtitles', title: '', format: 'English | Full' }).cls === 'bad');
+check('no-title video -> not validated', uiHandler.statusOf({ type: 'Video', title: '', format: 'HEVC' }).cls === 'na');
+check('matching title -> ok', uiHandler.statusOf({ type: 'Audio', title: 'English | AC-3 | 5.1', format: 'English | AC-3 | 5.1' }).cls === 'ok');
+check('mismatching title -> error', uiHandler.statusOf({ type: 'Subtitles', title: 'English', format: 'English | Full | PGS' }).cls === 'bad');
+
+// 13. A no-title audio track parsed end-to-end is counted as bad by statusOf.
+const noTitle = parser.parseMediaInfo([
+    'Audio',
+    'Format                         : AC-3',
+    'Channel(s)                     : 2 channels',
+    'Language                       : English',
+    '',
+].join('\r\n'));
+check('parsed no-title audio row exists', noTitle.length === 1 && !noTitle[0].title);
+check('parsed no-title audio is flagged bad', noTitle[0] && uiHandler.statusOf(noTitle[0]).cls === 'bad');
 
 console.error = realError;
 

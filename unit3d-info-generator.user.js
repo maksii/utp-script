@@ -740,7 +740,11 @@ class UIHandler {
 
     statusOf(row) {
         if (row.type === 'Video') return { icon: '—', cls: 'na', tip: 'Video track — not validated' };
-        if (!row.title) return { icon: '—', cls: 'na', tip: `No track title set. Suggested: ${row.format}` };
+        // Nothing to compare against (audio/subs always get a canonical format, so this
+        // is only a guard) — stay neutral rather than flag a phantom error.
+        if (!row.format) return { icon: '—', cls: 'na', tip: 'No suggested format to validate against' };
+        // A missing title can't match the convention, so it IS an error — not "n/a".
+        if (!row.title) return { icon: '❌', cls: 'bad', tip: `No track title set. Should be: ${row.format}` };
         const ok = this.validator.validateRow(row.title, row.format);
         return ok
             ? { icon: '✅', cls: 'ok', tip: 'Title matches the suggested format' }
@@ -812,9 +816,13 @@ class UIHandler {
             const showDiff = highlight && isNear;
             const titleInner = showDiff ? this.renderDiff(diff.aSeg) : (row.title ? esc(row.title) : '');
             const fmtInner = showDiff ? this.renderDiff(diff.bSeg) : esc(row.format);
+            // A present title is copyable; a missing one reads as the error it is
+            // ("not set", red) on audio/subs, but stays a neutral "—" on video.
             const titleCell = row.title
                 ? `<td class="${ns}-copy" data-copy="${esc(row.title)}" title="Click to copy">${titleInner}</td>`
-                : `<td class="${ns}-na">—</td>`;
+                : (isBad
+                    ? `<td class="${ns}-bad" title="No title set — should be: ${esc(row.format)}">not set</td>`
+                    : `<td class="${ns}-na">—</td>`);
             const tip = isNear
                 ? `Almost — ${diff.distance} character${diff.distance > 1 ? 's' : ''} off. Should be: ${row.format}`
                 : st.tip;
