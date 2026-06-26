@@ -38,9 +38,13 @@ settings:
     type: checkbox
     label: Add UKR to end of all titles to improve language detection by Sonarr and Radarr.
     default: false
-  - name: use_mediainfo_languages
+  - name: use_mediainfo_audio_languages
     type: checkbox
-    label: Use parsed mediainfo languages instead of hardcoded UKR tag
+    label: Add audio track languages parsed from mediainfo to titles to improve language detection by Sonarr and Radarr
+    default: true
+  - name: use_mediainfo_subtitle_languages
+    type: checkbox
+    label: "Add subtitle track languages parsed from mediainfo to titles, tagged as Subs (eg [Subs English]). WARNING - this requires custom formats in Sonarr/Radarr that recognise the Subs tag; without them the subtitle languages are read as audio/release languages and cause false positive language detection."
     default: true
   - name: add_releasegroup_by_uploader
     type: checkbox
@@ -126,74 +130,96 @@ search:
       selector: num_file
     uploader:
       selector: uploader
+      optional: true
     release_year:
-      selector: release_year 
+      selector: release_year
+      optional: true
     category_name:
       selector: category
     mediainfo:
       selector: media_info
+      optional: true
     audio_languages:
-      text: "{{ if .Result.mediainfo }}{{ .Result.mediainfo }}{{ else }}{{ end }}"
+      text: "{{ .Result.mediainfo }}"
       filters:
         - name: re_replace
-          args: ["(?s).*?(Audio(?:\\s+#\\d+)?\\r?\\n.*?Language\\s+:\\s+([^\r\n]+).*?)", "[$2]"] # Extract audio from mediainfo
+          args: ["(?s).*?Audio(?:\\s+#\\d+)?\\r?\\n(?:(?!\\r?\\n\\r?\\n).)*?Language\\s+:\\s+([^\\r\\n|]+?)\\s*(?=[|\\r\\n]|$)", "[$1]"] # Extract each audio track language. Capture stops at the first '|' (and trims), so a Language field padded with codec/bitrate junk (eg "Ukrainian | E-AC-3 | 640kb/s | DUB | Le Doyen") yields just "Ukrainian". The blank-line guard keeps an untagged track from borrowing a later/subtitle language
         - name: re_replace
-          args: ["\\s*[^\\[\\]]+(?:\\[[^\\[\\]]*\\][^\\[\\]]*)*$", ""] # Remove any text after the last language tag
+          args: ["^((?:\\[[^\\[\\]]*\\])*)[\\s\\S]*$", "$1"] # Keep only the leading run of [language] tags; drop the rest of the mediainfo dump (robust to unbalanced brackets)
         - name: re_replace
-          args: ["\\s\\([A-Z]{2}\\)", ""] # Remove language code from the end of the string
+          args: ["(?<=\\[[^\\]]*)\\s\\([^)]+\\)", ""] # Remove region/variant in parens inside a tag, eg [English (GB)] -> [English]
         - name: re_replace
-          args: ["\\[(.*?)\\](?=.*\\[\\1\\])", ""] # Remove any duplicate language tags
+          args: ["\\[(.*?)\\](?=.*\\[\\1\\])", ""] # Remove any duplicate language tags, eg [Ukrainian][Ukrainian] -> [Ukrainian]
         - name: re_replace
-          args: ["\\]\\[", "+"] # Replace ][ with a +
+          args: ["\\]\\[", "+"] # Replace ][ with a +, eg [Ukrainian][English] -> [Ukrainian+English]
     subtitle_languages:
-      text: "{{ if .Result.mediainfo }}{{ .Result.mediainfo }}{{ else }}{{ end }}"
+      text: "{{ .Result.mediainfo }}"
       filters:
         - name: re_replace
-          args: ["(?s).*?(Text(?:\\s+#\\d+)?\\r?\\n.*?Language\\s+:\\s+([^\r\n]+).*?)", "[$2]"] # Extract subs from mediainfo
+          args: ["(?s).*?Text(?:\\s+#\\d+)?\\r?\\n(?:(?!\\r?\\n\\r?\\n).)*?Language\\s+:\\s+([^\\r\\n|]+?)\\s*(?=[|\\r\\n]|$)", "[$1]"] # Extract each subtitle track language. Capture stops at the first '|' (and trims), same junk-tolerance as audio above; blank-line guard stops cross-section bleed
         - name: re_replace
-          args: ["\\s*[^\\[\\]]+(?:\\[[^\\[\\]]*\\][^\\[\\]]*)*$", ""] # Remove any text after the last language tag
+          args: ["^((?:\\[[^\\[\\]]*\\])*)[\\s\\S]*$", "$1"] # Keep only the leading run of [language] tags; drop the rest of the mediainfo dump (robust to unbalanced brackets)
         - name: re_replace
-          args: ["\\s\\([A-Z]{2}\\)", ""] # Remove language code from the end of the string
+          args: ["(?<=\\[[^\\]]*)\\s\\([^)]+\\)", ""] # Remove region/variant in parens inside a tag, eg [Chinese (Simplified)] -> [Chinese]
         - name: re_replace
           args: ["\\[(.*?)\\](?=.*\\[\\1\\])", ""] # Remove any duplicate language tags
         - name: re_replace
           args: ["\\]\\[", "+"] # Replace ][ with a +
         - name: re_replace
-          args: ["\\[", "[Subs "] # Replace [ with [Subs
-    language_tags:
-      text: "{{ .Result.audio_languages }}{{ .Result.subtitle_languages }}"
+          args: ["\\[", "[Subs "] # Replace [ with [Subs, eg [English+Ukrainian] -> [Subs English+Ukrainian]
     title:
       text: "{{ if and (.Config.single_file_release_use_filename) (eq .Result.files \"1\") (.Result.title_filename) }}{{ .Result.title_filename }}{{ else }}{{ .Result.title_optional }}{{ end }}"
       filters:
         - name: re_replace
-          args: ["(.*?\\b(?:2160p|1080[pi]|720p|480p)\\b)(.*)", "{{ if .Config.add_ukrainian_to_title }}$1 UKR$2{{ else }}$1$2{{ end }}"]
+          args: ["(.*?\\b(?:4320p|2160p|1440p|1080[pi]|720p|576[pi]|480[pi])\\b)(.*)", "{{ if .Config.add_ukrainian_to_title }}$1 UKR$2{{ else }}$1$2{{ end }}"] # Add UKR tag after the resolution
         - name: re_replace
-          args: ["^(?!\\s*\\[[^\\]]+\\]\\s*)(?!.*(?:-\\s*\\S+\\s*$|\\s*\\[[^\\]]+\\]\\s*$))(.+)", "{{ if .Config.add_releasegroup_by_uploader }}$1-{{ .Result.uploader }}{{ else }}$1{{ end }}"]
+          args: ["^(?!\\s*\\[[^\\]]+\\]\\s*)(?!.*(?:-[^-\\s.]+[-\\s.]*$|\\s*\\[[^\\]]+\\]\\s*$))(.+)", "{{ if and .Config.add_releasegroup_by_uploader .Result.uploader }}$1-{{ .Result.uploader }}{{ else }}$1{{ end }}"] # Append uploader as release group only when none present. The group token excludes dots (so dotted names like WEB-DL.x264 still qualify), and a trailing run of separators is tolerated so a dangling '-' after the group (eg ...1080p-dK-) is still recognised as a group and not double-tagged with the uploader
+        # Insert parsed MediaInfo languages after the resolution, each gated independently. NOTE: Prowlarr's {{ if }}
+        # regex REQUIRES an {{ else }} branch - an {{ if }}..{{ end }} with no {{ else }} is left in the output verbatim
+        # (only the separate {{ .Result.x }} substitution pass runs on it). So every conditional below uses the
+        # {{ if .. }}..{{ else }}..{{ end }} form. (This is why the per-language gating lives here in two filters rather
+        # than as {{ if }} blocks inside a combined language_tags text: field, where the missing else leaked literally.)
         - name: re_replace
-          args: ["(.*?\\b(?:2160p|1080[pi]|720p|480p)\\b)(.*)", "{{ if .Config.use_mediainfo_languages }}$1 {{ .Result.language_tags }}$2{{ else }}$1$2{{ end }}"]
+          args: ["(.*?\\b(?:4320p|2160p|1440p|1080[pi]|720p|576[pi]|480[pi])\\b)(.*)", "{{ if and .Config.use_mediainfo_subtitle_languages .Result.subtitle_languages }}$1 {{ .Result.subtitle_languages }}$2{{ else }}$1$2{{ end }}"] # Subtitle languages - inserted first so the audio tag (next filter) lands ahead of it
         - name: re_replace
-          args: ["\\b(\\d{4}(?:-\\d{4})?)\\b", "{{ if and (.Config.fix_tv_year) (eq .Result.category_name \"TV\") }}{{ .Result.release_year }}{{ else }}$1{{ end }}"]
+          args: ["(.*?\\b(?:4320p|2160p|1440p|1080[pi]|720p|576[pi]|480[pi])\\b)(.*)", "{{ if and .Config.use_mediainfo_audio_languages .Result.audio_languages }}$1 {{ .Result.audio_languages }}$2{{ else }}$1$2{{ end }}"] # Audio languages
         - name: re_replace
-          args: ["(.*?)(S\\d+(?:E\\d+)?)(\\s+)(\\d{4}(?:-\\d{4})?)(.*)", "{{ if and (.Config.fix_tv_year) (eq .Result.category_name \"TV\") }}$1$4$3$2$5{{ else }}$1$2$3$4$5{{ end }}"]
+          args: ["(S\\d+(?:E\\d+)*)(\\s+)((?:19|20)\\d{2}(?:-(?:19|20)\\d{2})?)\\b", "{{ if and (.Config.fix_tv_year) (eq .Result.category_name \"TV\") (.Result.release_year) }}{{ .Result.release_year }}$2$1{{ else }}$1$2$3{{ end }}"] # TV: a year right AFTER the season is the season-year - move the first-season year before the season (S01 2021 -> 2019 S01). Only a year adjacent to the season is touched, so a year-named show (1923, 2049) is never clobbered
+        - name: re_replace
+          args: ["(?<=\\S\\s)((?:19|20)\\d{2}(?:-(?:19|20)\\d{2})?)(\\s+S\\d+(?:E\\d+)*)\\b", "{{ if and (.Config.fix_tv_year) (eq .Result.category_name \"TV\") (.Result.release_year) }}{{ .Result.release_year }}$2{{ else }}$1$2{{ end }}"] # TV: a year just BEFORE the season (and not the first title token) -> normalise to first-season year in place; the lookbehind keeps a leading year-name like 1923 untouched
         - name: replace
           args: ["BDRemux", "BluRay REMUX"]
         - name: replace
           args: ["BDRip", "BluRay"]
+        - name: re_replace
+          args: ["\\s{2,}", " "] # Collapse any double spaces created by the inserts above
+        - name: re_replace
+          args: ["^\\s+|[\\s-]+$", ""] # Trim leading whitespace and any trailing whitespace/dangling separators (eg a stray '-' left at the end by a malformed release name)
     details:
       selector: details_link
     download:
       selector: download_link
+    infohash:
+      # NOTE: UNIT3D CE >= 9.x no longer returns info_hash (only inside magnet_link). optional:true is
+      # REQUIRED - a null non-optional field aborts the whole JSON search. Harmless/empty if absent.
+      selector: info_hash
+      optional: true
     poster:
       selector: meta.poster
       filters:
         - name: replace
           args: ["https://via.placeholder.com/90x135", ""]
+    # external-db ids can be null for un-matched torrents; optional:true keeps the row
+    # instead of aborting the whole JSON search on a null value.
     imdbid:
       selector: imdb_id
+      optional: true
     tmdbid:
       selector: tmdb_id
+      optional: true
     tvdbid:
       selector: tvdb_id
+      optional: true
     genre:
       selector: meta.genres
       filters:
@@ -205,8 +231,13 @@ search:
           args: ["(?i)(Науково фантастичний)", "Науково_фантастичний"]
         - name: re_replace
           args: ["(?i)(Політика та війна)", "Політика_та_війна"]
+    _internal:
+      selector: internal
+      case:
+        False: "{{ .False }}"
+        True: "{{ .True }}"
     description:
-      text: "{{ .Result.genre }}"
+      text: "{{ if .Result._internal }}Internal{{ else }}{{ end }}{{ if and .Result._internal .Result.genre }} | {{ else }}{{ end }}{{ .Result.genre }}"
     seeders:
       selector: seeders
     leechers:
