@@ -7,6 +7,10 @@ const REPO_ROOT = path.join(__dirname, '..'); // Go up one level to repo root
 const MAIN_FILE = 'unit3d-info-generator.user.js';
 const MODULES_DIR = path.join(SRC_DIR, 'modules');
 
+// Explicit concatenation order. Classes are hoisted so runtime order doesn't
+// strictly matter, but this keeps the bundle readable (deps before users).
+const MODULE_ORDER = ['Config', 'Utils', 'DataValidator', 'MediaInfoParser', 'UIHandler'];
+
 // Read the main file
 const mainContent = fs.readFileSync(path.join(SRC_DIR, MAIN_FILE), 'utf8');
 
@@ -18,43 +22,38 @@ if (!headerMatch) {
 }
 const header = headerMatch[0];
 
-// Read all module files
-const moduleFiles = fs.readdirSync(MODULES_DIR)
-    .filter(file => file.endsWith('.js'))
-    .map(file => ({
-        name: file.replace('.js', ''),
-        content: fs.readFileSync(path.join(MODULES_DIR, file), 'utf8')
-    }));
+// Read all module files in the declared order (warn on any not covered).
+const present = fs.readdirSync(MODULES_DIR).filter(f => f.endsWith('.js')).map(f => f.replace('.js', ''));
+const missing = present.filter(name => !MODULE_ORDER.includes(name));
+if (missing.length) {
+    console.warn(`Warning: module(s) not in MODULE_ORDER, appending at end: ${missing.join(', ')}`);
+}
+const moduleNames = [...MODULE_ORDER.filter(n => present.includes(n)), ...missing];
+
+const moduleFiles = moduleNames.map(name => ({
+    name,
+    content: fs.readFileSync(path.join(MODULES_DIR, name + '.js'), 'utf8')
+}));
 
 // Create the bundled content
 let bundledContent = header + '\n\n';
 
-// Add each module as a class
+// Add each module as a class (strip ES module syntax for the flat bundle).
 moduleFiles.forEach(module => {
-    // Remove export statement and any other export-related code
-    let classContent = module.content
-        .replace(/export\s+/g, '')  // Remove export statements
-        .replace(/import\s+.*?from\s+.*?;/g, '')  // Remove import statements
+    const classContent = module.content
+        .replace(/^\s*export\s+/gm, '')                 // drop `export` keyword
+        .replace(/^\s*import\s+.*?;\s*$/gm, '')          // drop import lines
         .trim();
-
-    // Ensure the class has proper closing brace
-    if (!classContent.endsWith('}')) {
-        classContent += '\n}';
-    }
-
     bundledContent += classContent + '\n\n';
 });
 
 // Add the main initialization code
-bundledContent += `
-(function () {
+bundledContent += `(function () {
     'use strict';
-
-    console.log('MediaInfo Parser script loaded');
 
     // Initialize modules
     const config = new Config();
-    const utils = new Utils();
+    const utils = new Utils(config);
     const dataValidator = new DataValidator();
     const mediaInfoParser = new MediaInfoParser(dataValidator, utils, config);
     const uiHandler = new UIHandler(mediaInfoParser, utils, config, dataValidator);
@@ -68,4 +67,4 @@ bundledContent += `
 fs.writeFileSync(path.join(REPO_ROOT, MAIN_FILE), bundledContent);
 
 console.log('Build completed successfully!');
-console.log(`Output file: ${path.join(REPO_ROOT, MAIN_FILE)}`); 
+console.log(`Output file: ${path.join(REPO_ROOT, MAIN_FILE)}`);

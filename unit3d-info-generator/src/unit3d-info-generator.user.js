@@ -1,10 +1,15 @@
 // ==UserScript==
 // @name         MediaInfo Parser for Release
-// @version      1.6
-// @description  Parse MediaInfo and generate a table on /torrents/create and /torrents/*
-// @match        *://*/torrents/create
+// @namespace    https://github.com/maksii/utp-script
+// @author       maksii
+// @version      2.0.0
+// @description  Parse MediaInfo on UNIT3D torrent create/view pages into a clean, validated track table with copy-to-clipboard.
 // @match        *://*/torrents/*
-// @grant        none
+// @run-at       document-idle
+// @grant        GM_addStyle
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_registerMenuCommand
 // @updateURL    https://raw.githubusercontent.com/maksii/utp-script/main/unit3d-info-generator.user.js
 // @downloadURL  https://raw.githubusercontent.com/maksii/utp-script/main/unit3d-info-generator.user.js
 // ==/UserScript==
@@ -18,15 +23,13 @@ import { Utils } from './modules/Utils.js';
 (function () {
     'use strict';
 
-    console.log('MediaInfo Parser script loaded');
-
     // Initialize modules
     const config = new Config();
-    const utils = new Utils();
+    const utils = new Utils(config);
     const dataValidator = new DataValidator();
     const mediaInfoParser = new MediaInfoParser(dataValidator, utils, config);
     const uiHandler = new UIHandler(mediaInfoParser, utils, config, dataValidator);
 
     // Start the application
     uiHandler.initialize();
-})(); 
+})();

@@ -1,183 +1,325 @@
 export class UIHandler {
     constructor(mediaInfoParser, utils, config, dataValidator) {
-        this.mediaInfoParser = mediaInfoParser;
+        this.parser = mediaInfoParser;
         this.utils = utils;
         this.config = config;
-        this.dataValidator = dataValidator;
-        this.mediaInfoTextarea = null;
-        this.outputDiv = null;
+        this.validator = dataValidator;
+
+        this.mode = null;          // 'create' | 'view'
+        this.textarea = null;
         this.fileInput = null;
-        this.isCreatePage = false;
+        this.output = null;
+        this.sourceText = '';      // last MediaInfo text rendered (view mode)
+        this.lastRows = [];
+        this._debounce = null;
     }
 
     initialize() {
+        this.utils.injectStyles(this.config.STYLES);
+        this.registerMenu();
         this.utils.log('Initializing UI Handler');
-        
-        // Check if we're on create or view page
-        this.isCreatePage = window.location.pathname.endsWith('/create');
-        
-        if (this.isCreatePage) {
-            this.initializeCreatePage();
-        } else {
-            this.initializeViewPage();
-        }
+
+        const sel = this.config.SELECTORS;
+        // Whichever appears first decides the mode. Bounded, so non-applicable
+        // /torrents/* pages stop watching instead of polling forever.
+        this.utils.waitForElement(
+            () => document.querySelector(sel.CREATE_TEXTAREA) || this.findMediainfoCode(),
+            (el) => this.onReady(el),
+            { timeout: 20000 }
+        );
     }
 
-    initializeCreatePage() {
-        // Use setInterval to wait for the DOM to be ready
-        const interval = setInterval(() => {
-            this.mediaInfoTextarea = document.querySelector(this.config.DOM_SELECTORS.MEDIAINFO_TEXTAREA);
-            if (this.mediaInfoTextarea) {
-                clearInterval(interval);
-                this.setupCreatePageUI();
-            }
-        }, 500);
+    findMediainfoCode() {
+        const sel = this.config.SELECTORS;
+        return document.querySelector(sel.VIEW_MEDIAINFO)
+            || document.querySelector('.mediainfo code')
+            || document.querySelector('code.mediainfo')
+            || null;
     }
 
-    initializeViewPage() {
-        // Use setInterval to wait for the DOM to be ready
-        const interval = setInterval(() => {
-            const mediainfoElement = document.querySelector('code[x-ref="mediainfo"]');
-            const subtitlesElement = document.querySelector('.mediainfo__subtitles');
-            
-            if (mediainfoElement && subtitlesElement) {
-                clearInterval(interval);
-                this.setupViewPageUI(mediainfoElement, subtitlesElement);
-            }
-        }, 500);
-    }
-
-    setupCreatePageUI() {
+    onReady(el) {
+        const isTextarea = el.tagName === 'TEXTAREA'
+            || el.id === this.config.SELECTORS.CREATE_TEXTAREA.replace('#', '');
         try {
-            this.createFileInput();
-            this.createOutputDiv();
-            this.setupEventListeners();
-            this.utils.log('Create page UI setup completed');
+            if (isTextarea) this.setupCreate(el);
+            else this.setupView(el);
         } catch (error) {
-            this.utils.error('Error setting up create page UI:', error);
+            this.utils.error('Error setting up UI', error);
         }
     }
 
-    setupViewPageUI(mediainfoElement, subtitlesElement) {
-        try {
-            this.createOutputDiv();
-            this.outputDiv.style.marginTop = '20px';
-            subtitlesElement.parentNode.insertBefore(this.outputDiv, subtitlesElement.nextSibling);
-            
-            // Parse and render the MediaInfo
-            const mediainfoText = mediainfoElement.textContent;
-            const parsedData = this.mediaInfoParser.parseMediaInfo(mediainfoText);
-            this.renderData(parsedData);
-            
-            this.utils.log('View page UI setup completed');
-        } catch (error) {
-            this.utils.error('Error setting up view page UI:', error);
-        }
-    }
+    // ----- create / edit page ------------------------------------------------
+    setupCreate(textarea) {
+        this.mode = 'create';
+        this.textarea = textarea;
 
-    createFileInput() {
-        this.fileInput = document.createElement('input');
-        this.fileInput.type = 'file';
-        this.fileInput.id = this.config.UI_CONFIG.FILE_INPUT_ID;
-        this.fileInput.accept = this.config.UI_CONFIG.FILE_INPUT_ACCEPT;
-        Object.assign(this.fileInput.style, this.config.UI_CONFIG.FILE_INPUT_STYLE);
+        const group = textarea.closest(this.config.SELECTORS.CREATE_GROUP) || textarea.parentElement;
+        this.buildUploadControl(group);
 
-        const uploadWrapper = document.createElement('div');
-        Object.assign(uploadWrapper.style, this.config.UI_CONFIG.UPLOAD_WRAPPER_STYLE);
-        uploadWrapper.appendChild(this.fileInput);
+        this.output = document.createElement('div');
+        this.output.id = this.config.SELECTORS.OUTPUT_CREATE_ID;
+        this.output.className = `${this.config.NS}-output`;
+        // Live table sits directly below the textarea group.
+        group.parentNode.insertBefore(this.output, group.nextSibling);
 
-        const mediaInfoGroup = this.mediaInfoTextarea.closest(this.config.DOM_SELECTORS.MEDIAINFO_GROUP);
-        if (!mediaInfoGroup) {
-            throw new Error('Parent form group for MediaInfo textarea not found');
-        }
-
-        mediaInfoGroup.parentNode.insertBefore(uploadWrapper, mediaInfoGroup);
-    }
-
-    createOutputDiv() {
-        this.outputDiv = document.createElement('div');
-        this.outputDiv.id = this.isCreatePage ? 
-            this.config.DOM_SELECTORS.OUTPUT_DIV_CREATE.slice(1) : 
-            this.config.DOM_SELECTORS.OUTPUT_DIV_VIEW.slice(1);
-        
-        if (this.isCreatePage) {
-            const mediaInfoGroup = this.mediaInfoTextarea.closest(this.config.DOM_SELECTORS.MEDIAINFO_GROUP);
-            mediaInfoGroup.parentNode.insertBefore(this.outputDiv, mediaInfoGroup);
-        }
-    }
-
-    setupEventListeners() {
-        this.fileInput.addEventListener('change', this.handleFileInputChange.bind(this));
-        this.mediaInfoTextarea.addEventListener('input', this.handleTextareaInput.bind(this));
-    }
-
-    handleFileInputChange(event) {
-        const file = event.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                this.mediaInfoTextarea.value = e.target.result;
-                this.utils.log('File content loaded into textarea');
-            };
-            reader.readAsText(file);
-        }
-    }
-
-    handleTextareaInput() {
-        const text = this.mediaInfoTextarea.value;
-        if (text.trim()) {
-            this.utils.log('Generating table for provided MediaInfo text');
-            const parsedData = this.mediaInfoParser.parseMediaInfo(text);
-            this.renderData(parsedData);
-        } else {
-            this.outputDiv.innerHTML = '';
-        }
-    }
-
-    renderData(rows) {
-        if (!rows || rows.length === 0) {
-            this.outputDiv.innerHTML = '<p>No data found.</p>';
-            return;
-        }
-
-        let table = '<table border="1" style="width: 100%; border-collapse: collapse;">';
-        table += `
-            <thead>
-                <tr>
-                    <th>Type</th>
-                    <th>Language</th>
-                    <th>Default</th>
-                    <th>Forced</th>
-                    <th>Title</th>
-                    <th>Format</th>
-                    <th>Validation</th>
-                </tr>
-            </thead>
-            <tbody>
-        `;
-
-        rows.forEach((row) => {
-            if (!row) return;
-
-            const isValid = this.dataValidator.validateFormat(row);
-            table += `
-                <tr>
-                    <td>${this.utils.getTypeIcon(row.type || '', this.config)}</td>
-                    <td>${this.utils.getCountryFlag(row.language || 'Unknown', this.config)} ${row.language || 'Unknown'}</td>
-                    <td>${this.utils.renderYesNoIcon(row.default || 'No')}</td>
-                    <td>${this.utils.renderYesNoIcon(row.forced || 'No')}</td>
-                    <td>${row.title || ''}</td>
-                    <td>${row.format || ''}</td>
-                    <td>${this.utils.renderValidationIcon(isValid)}</td>
-                </tr>
-            `;
+        textarea.addEventListener('input', () => {
+            clearTimeout(this._debounce);
+            this._debounce = setTimeout(() => this.refresh(), 180);
         });
 
-        table += '</tbody></table>';
-        this.outputDiv.innerHTML = table;
-
-        // Enable copy on click for all table cells
-        const cells = this.outputDiv.querySelectorAll('td');
-        cells.forEach(cell => this.utils.enableCopyOnClick(cell));
+        if (textarea.value.trim()) this.refresh();
+        this.utils.log('Create page UI ready');
     }
-} 
+
+    buildUploadControl(group) {
+        const ns = this.config.NS;
+        const wrap = document.createElement('div');
+        wrap.className = `${ns}-upload`;
+
+        const label = document.createElement('label');
+        label.textContent = 'MediaInfo file:';
+        label.htmlFor = `${ns}-file`;
+
+        this.fileInput = document.createElement('input');
+        this.fileInput.type = 'file';
+        this.fileInput.id = `${ns}-file`;
+        this.fileInput.accept = '.txt,.log,.nfo,text/plain';
+        this.fileInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) this.loadFile(file);
+        });
+
+        const hint = document.createElement('span');
+        hint.className = `${ns}-hint`;
+        hint.textContent = 'or drag a .txt here / paste below — the table updates live.';
+
+        wrap.append(label, this.fileInput, hint);
+
+        // Drag & drop straight onto the control.
+        wrap.addEventListener('dragover', (e) => { e.preventDefault(); wrap.classList.add('dragover'); });
+        wrap.addEventListener('dragleave', () => wrap.classList.remove('dragover'));
+        wrap.addEventListener('drop', (e) => {
+            e.preventDefault();
+            wrap.classList.remove('dragover');
+            const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (file) this.loadFile(file);
+        });
+
+        group.parentNode.insertBefore(wrap, group);
+    }
+
+    loadFile(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            this.textarea.value = e.target.result;
+            this.refresh();
+            this.utils.log('Loaded MediaInfo from file', file.name);
+        };
+        reader.onerror = () => this.utils.error('Could not read file', file.name);
+        reader.readAsText(file);
+    }
+
+    // ----- torrent view page -------------------------------------------------
+    setupView(codeEl) {
+        this.mode = 'view';
+        this.sourceText = codeEl.textContent || '';
+
+        this.output = document.createElement('div');
+        this.output.id = this.config.SELECTORS.OUTPUT_VIEW_ID;
+        this.output.className = `${this.config.NS}-output`;
+
+        const anchor = this.resolveViewAnchor(codeEl);
+        anchor.parentNode.insertBefore(this.output, anchor.nextSibling);
+
+        this.refresh();
+        this.utils.log('View page UI ready');
+    }
+
+    // Place the summary after the native MediaInfo block. Prefer the subtitles
+    // section (original placement) but fall back gracefully — many torrents have
+    // no subtitles section at all, which previously blocked rendering entirely.
+    resolveViewAnchor(codeEl) {
+        const sel = this.config.SELECTORS;
+        return document.querySelector(sel.VIEW_SUBTITLES)
+            || document.querySelector(sel.VIEW_AUDIO)
+            || codeEl.closest('.panelV2, .panel, section')
+            || codeEl.parentElement
+            || codeEl;
+    }
+
+    // ----- rendering ---------------------------------------------------------
+    refresh() {
+        const text = this.mode === 'create' ? (this.textarea ? this.textarea.value : '') : this.sourceText;
+        if (!text || !text.trim()) {
+            this.lastRows = [];
+            if (this.output) this.output.innerHTML = '';
+            return;
+        }
+        this.lastRows = this.parser.parseMediaInfo(text);
+        this.render(this.lastRows);
+    }
+
+    statusOf(row) {
+        if (row.type === 'Video') return { icon: '—', cls: 'na', tip: 'Video track — not validated' };
+        if (!row.title) return { icon: '—', cls: 'na', tip: `No track title set. Suggested: ${row.format}` };
+        const ok = this.validator.validateRow(row.title, row.format);
+        return ok
+            ? { icon: '✅', cls: 'ok', tip: 'Title matches the suggested format' }
+            : { icon: '❌', cls: 'bad', tip: `Title should be: ${row.format}` };
+    }
+
+    render(rows) {
+        this.output.innerHTML = this.buildHtml(rows);
+        if (rows && rows.length) { this.wireHead(); this.wireRow(); }
+    }
+
+    // Render a charDiff segment list, wrapping only the differing characters so the
+    // user sees exactly what's off. Text is escaped; the <mark> tags are ours.
+    renderDiff(segs) {
+        const ns = this.config.NS;
+        const esc = (s) => this.utils.escapeHtml(s);
+        return segs.map((p) => p.changed ? `<mark class="${ns}-diff">${esc(p.text)}</mark>` : esc(p.text)).join('');
+    }
+
+    // Pure markup builder (no DOM side effects) so it can be unit-tested and
+    // previewed outside the browser.
+    buildHtml(rows) {
+        const ns = this.config.NS;
+        const esc = (s) => this.utils.escapeHtml(s);
+
+        if (!rows || rows.length === 0) {
+            return `<div class="${ns}-empty">No video, audio or subtitle tracks found in this MediaInfo.</div>`;
+        }
+
+        const showFlags = this.utils.getSetting('showFlags');
+        const highlight = this.utils.getSetting('highlightInvalid');
+        const expanded = !!this.utils.getSetting('tableExpanded');
+
+        // Evaluate each row once: validation status, and a char-diff for invalid rows
+        // so we can flag near-misses (title <3 chars off the suggested format).
+        const evaluated = rows.map((row) => {
+            const st = this.statusOf(row);
+            const isBad = st.cls === 'bad';
+            const diff = isBad ? this.validator.charDiff(row.title, row.format) : null;
+            const isNear = !!(diff && diff.distance > 0 && diff.distance < 3);
+            return { row, st, isBad, diff, isNear };
+        });
+
+        // Summary: per-type counts, distinct languages, and an at-a-glance verdict
+        // (so the collapsed header alone tells you whether anything needs fixing).
+        const counts = { Video: 0, Audio: 0, Subtitles: 0 };
+        const langs = [];
+        let bad = 0, near = 0;
+        evaluated.forEach(({ row, isBad, isNear }) => {
+            counts[row.type] = (counts[row.type] || 0) + 1;
+            if (row.language && row.language !== 'Unknown' && !langs.includes(row.language)) langs.push(row.language);
+            if (isBad) bad++;
+            if (isNear) near++;
+        });
+        const summaryBits = [];
+        ['Video', 'Audio', 'Subtitles'].forEach((t) => {
+            if (counts[t]) summaryBits.push(`${this.config.TYPE_ICONS[t]} ${counts[t]}`);
+        });
+        let summary = summaryBits.join(' · ') + (langs.length ? ` — ${esc(langs.join(', '))}` : '');
+        const verdict = bad === 0
+            ? `<span class="${ns}-ok">✅ all titles match</span>`
+            : `<span class="${ns}-bad">❌ ${bad} to fix${near ? ` · ${near} near-miss` : ''}</span>`;
+        summary += ` · ${verdict}`;
+
+        const body = evaluated.map(({ row, st, isBad, diff, isNear }) => {
+            const flag = showFlags ? this.utils.getCountryFlag(row.language, this.config) : '';
+            const rowCls = (highlight && isBad) ? ` class="${ns}-row-${isNear ? 'near' : 'bad'}"` : '';
+            // On a highlighted near-miss, mark the differing characters in both cells.
+            const showDiff = highlight && isNear;
+            const titleInner = showDiff ? this.renderDiff(diff.aSeg) : (row.title ? esc(row.title) : '');
+            const fmtInner = showDiff ? this.renderDiff(diff.bSeg) : esc(row.format);
+            const titleCell = row.title
+                ? `<td class="${ns}-copy" data-copy="${esc(row.title)}" title="Click to copy">${titleInner}</td>`
+                : `<td class="${ns}-na">—</td>`;
+            const tip = isNear
+                ? `Almost — ${diff.distance} character${diff.distance > 1 ? 's' : ''} off. Should be: ${row.format}`
+                : st.tip;
+            return `<tr${rowCls}>
+                <td class="${ns}-center" title="${esc(row.type)}">${this.utils.getTypeIcon(row.type, this.config)}</td>
+                <td>${flag}${esc(row.language)}</td>
+                <td class="${ns}-center">${this.utils.renderYesNoIcon(row.default)}</td>
+                <td class="${ns}-center">${this.utils.renderYesNoIcon(row.forced)}</td>
+                ${titleCell}
+                <td class="${ns}-copy ${ns}-fmt" data-copy="${esc(row.format)}" title="Click to copy the suggested title">${fmtInner}</td>
+                <td class="${ns}-center ${ns}-${st.cls}" title="${esc(tip)}">${st.icon}</td>
+            </tr>`;
+        }).join('');
+
+        // Head is the collapse toggle; the table is hidden until expanded (default collapsed).
+        return `
+            <div class="${ns}-head" role="button" tabindex="0" aria-expanded="${expanded}" aria-controls="${ns}-tablewrap"
+                 title="Click to ${expanded ? 'collapse' : 'expand'} the track table">
+                <div class="${ns}-title"><span class="${ns}-chevron">${expanded ? '▾' : '▸'}</span>${this.config.TYPE_ICONS.Audio} MediaInfo Summary</div>
+                <div class="${ns}-summary">${summary}</div>
+            </div>
+            <div class="${ns}-tablewrap" id="${ns}-tablewrap"${expanded ? '' : ' hidden'}>
+                <table class="${ns}-table">
+                    <thead><tr>
+                        <th class="${ns}-center">Type</th><th>Language</th>
+                        <th class="${ns}-center">Def</th><th class="${ns}-center">Forced</th>
+                        <th>Title</th><th>Suggested format</th><th class="${ns}-center">OK</th>
+                    </tr></thead>
+                    <tbody>${body}</tbody>
+                </table>
+            </div>`;
+    }
+
+    // Attach behaviour the CSP-safe way (no inline handlers): click-to-copy and
+    // a graceful flag fallback when a flag image 404s.
+    wireRow() {
+        const ns = this.config.NS;
+        this.output.querySelectorAll(`.${ns}-copy`).forEach((cell) => {
+            cell.addEventListener('click', () => {
+                const value = cell.getAttribute('data-copy');
+                if (value) this.utils.copyText(value);
+            });
+        });
+        this.output.querySelectorAll(`img[data-${ns}-flag]`).forEach((img) => {
+            img.addEventListener('error', () => {
+                img.removeAttribute(`data-${ns}-flag`);
+                img.src = '/vendor/joypixels/png/64/1f6a8.png';
+            }, { once: true });
+        });
+    }
+
+    // Wire the summary header as a collapse toggle (click + keyboard). The open/closed
+    // state is persisted so it survives the live re-renders on the create page.
+    wireHead() {
+        const ns = this.config.NS;
+        const head = this.output.querySelector(`.${ns}-head`);
+        const wrap = this.output.querySelector(`.${ns}-tablewrap`);
+        if (!head || !wrap) return;
+        const toggle = () => {
+            const willExpand = wrap.hasAttribute('hidden');
+            if (willExpand) wrap.removeAttribute('hidden'); else wrap.setAttribute('hidden', '');
+            head.setAttribute('aria-expanded', String(willExpand));
+            head.title = `Click to ${willExpand ? 'collapse' : 'expand'} the track table`;
+            const chev = head.querySelector(`.${ns}-chevron`);
+            if (chev) chev.textContent = willExpand ? '▾' : '▸';
+            this.utils.setSetting('tableExpanded', willExpand);
+        };
+        head.addEventListener('click', toggle);
+        head.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); toggle(); }
+        });
+    }
+
+    // ----- settings menu -----------------------------------------------------
+    registerMenu() {
+        if (typeof GM_registerMenuCommand !== 'function') return;
+        const toggle = (key, name) => {
+            const next = !this.utils.getSetting(key);
+            this.utils.setSetting(key, next);
+            this.utils.toast(`${name}: ${next ? 'ON' : 'OFF'}`);
+            this.refresh();
+        };
+        GM_registerMenuCommand('Toggle country flags', () => toggle('showFlags', 'Country flags'));
+        GM_registerMenuCommand('Toggle invalid-row highlight', () => toggle('highlightInvalid', 'Highlight invalid'));
+        GM_registerMenuCommand('Toggle verbose logging', () => toggle('verboseLogging', 'Verbose logging'));
+    }
+}
