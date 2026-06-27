@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         External Links on UNIT3D
 // @namespace    N/A
-// @version      0.10.0
+// @version      0.10.1
 // @description  Add links to other sites on the metadata section of a torrent item
 // @match        *://*/torrents/*
 // @match        *://*/requests/*
@@ -353,9 +353,9 @@
     {
       name: "PTerClub",
       icon: "fa-solid fa-shield-cat",
-      imdbSearchUrl: "https://pterclub.com/torrents.php?incldead=0&search_area=4&search=$Id&sort=5&type=desc",
+      imdbSearchUrl: "https://pterclub.net/torrents.php?incldead=0&search_area=4&search=$Id&sort=5&type=desc",
       tmdbSearchUrl: "",
-      nameSearchUrl: "https://pterclub.com/torrents.php?incldead=0&search_area=4&search=$Id&sort=5&type=desc",
+      nameSearchUrl: "https://pterclub.net/torrents.php?incldead=0&search_area=4&search=$Id&sort=5&type=desc",
       type: SITE_TYPES.TRACKER,
     },
     {
@@ -1619,17 +1619,12 @@
       // Best-effort maintenance: drop expired caches (fire-and-forget).
       purgeExpiredCaches();
 
-      // I recommend using DecentralEyes so that stylesheets are not loaded from CloudFlare, but locally:
-      // Latest Font Awesome version to use Letterboxd's icon
-      document.head.insertAdjacentHTML(
-        "beforeend",
-        '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/brands.min.css" integrity="sha512-8RxmFOVaKQe/xtg6lbscU9DU0IRhURWEuiI0tXevv+lXbAHfkpamD4VKFQRto9WgfOJDwOZ74c/s9Yesv3VvIQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />'
-      );
-      // The IMDB icon of the more recent Font Awesome versions is unreadable
-      document.head.insertAdjacentHTML(
-        "beforeend",
-        '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/brands.min.css" integrity="sha512-sVSECYdnRMezwuq5uAjKQJEcu2wybeAPjU4VJQ9pCRcCY4pIpIw4YMHIOQ0CypfwHRvdSPbH++dA3O4Hihm/LQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />'
-      );
+      // FontAwesome (solid/light/regular AND brands) is already provided by the
+      // UNIT3D host page, served from 'self' and allowed by the tracker CSP. We
+      // render fa-* glyphs against that bundled build, so no external stylesheet
+      // is injected here. Previously this block appended brands.min.css from
+      // cdnjs.cloudflare.com, which violated the page's style-src CSP
+      // ('self' 'unsafe-inline' github.* only) and was blocked on every load.
 
       //Style changes
       const overriddenStyles = `
