@@ -1,0 +1,679 @@
+---
+id: tolokayaml
+name: "Toloka (YAML)"
+description: "Toloka.to is a UKRAINIAN, semi-private torrent tracker. An alternative Cardigann (YAML) indexer with title-formatting enhancements so Sonarr/Radarr can parse and match releases: video forums are rebuilt, music/books/etc. pass through. Per-result detail/api data is unavailable (see README.md)."
+language: uk-UA
+type: semi-private
+encoding: UTF-8
+links:
+  - https://toloka.to/
+
+caps:
+  categorymappings:
+    - {id: 117, cat: Movies, desc: "Українське кіно"}
+    - {id: 84, cat: Movies, desc: "Українське кіно / Мультфільми і казки"}
+    - {id: 42, cat: Movies, desc: "Українське кіно / Художні фільми"}
+    - {id: 124, cat: TV/HD, desc: "Українське кіно / Телесеріали"}
+    - {id: 125, cat: TV/HD, desc: "Українське кіно / Мультсеріали"}
+    - {id: 129, cat: Movies, desc: "Українське кіно / АртХаус"}
+    - {id: 219, cat: Movies, desc: "Українське кіно / Аматорське відео"}
+    - {id: 118, cat: Movies, desc: "Українське озвучення"}
+    - {id: 16, cat: Movies, desc: "Українське озвучення / Фільми"}
+    - {id: 32, cat: TV/HD, desc: "Українське озвучення / Телесеріали"}
+    - {id: 19, cat: Movies, desc: "Українське озвучення / Мультфільми"}
+    - {id: 44, cat: TV/HD, desc: "Українське озвучення / Мультсеріали"}
+    - {id: 127, cat: TV/Anime, desc: "Українське озвучення / Аніме"}
+    - {id: 127, cat: Movies/Other, desc: "Українське озвучення / Аніме"}
+    - {id: 55, cat: Movies, desc: "Українське озвучення / АртХаус"}
+    - {id: 94, cat: Movies/Other, desc: "Українське озвучення / Трейлери"}
+    - {id: 144, cat: Movies, desc: "Українське озвучення / Короткометражні"}
+    - {id: 190, cat: Movies, desc: "Українські субтитри"}
+    - {id: 70, cat: Movies, desc: "Українські субтитри / Фільми"}
+    - {id: 192, cat: TV/HD, desc: "Українські субтитри / Телесеріали"}
+    - {id: 193, cat: Movies, desc: "Українські субтитри / Мультфільми"}
+    - {id: 195, cat: TV/HD, desc: "Українські субтитри / Мультсеріали"}
+    - {id: 194, cat: TV/Anime, desc: "Українські субтитри / Аніме"}
+    - {id: 194, cat: Movies/Other, desc: "Українські субтитри / Аніме"}
+    - {id: 196, cat: Movies, desc: "Українські субтитри / АртХаус"}
+    - {id: 197, cat: Movies, desc: "Українські субтитри / Короткометражні"}
+    - {id: 225, cat: TV/Documentary, desc: "Документальні фільми українською"}
+    - {id: 21, cat: TV/Documentary, desc: "Документальні фільми українською / Українські наукові документальні фільми"}
+    - {id: 131, cat: TV/Documentary, desc: "Документальні фільми українською / Українські історичні документальні фільми"}
+    - {id: 226, cat: TV/Documentary, desc: "Документальні фільми українською / BBC"}
+    - {id: 227, cat: TV/Documentary, desc: "Документальні фільми українською / Discovery"}
+    - {id: 228, cat: TV/Documentary, desc: "Документальні фільми українською / National Geographic"}
+    - {id: 229, cat: TV/Documentary, desc: "Документальні фільми українською / History Channel"}
+    - {id: 230, cat: TV/Documentary, desc: "Документальні фільми українською / Інші іноземні документальні фільми"}
+    - {id: 119, cat: TV/Other, desc: "Телепередачі українською"}
+    - {id: 18, cat: TV/Other, desc: "Телепередачі українською / Музичне відео"}
+    - {id: 132, cat: TV/Other, desc: "Телепередачі українською / Телевізійні шоу та програми"}
+    - {id: 157, cat: TV/Sport, desc: "Український спорт"}
+    - {id: 235, cat: TV/Sport, desc: "Український спорт / Олімпіада"}
+    - {id: 170, cat: TV/Sport, desc: "Український спорт / Чемпіонати Європи з футболу"}
+    - {id: 162, cat: TV/Sport, desc: "Український спорт / Чемпіонати світу з футболу"}
+    - {id: 166, cat: TV/Sport, desc: "Український спорт / Чемпіонат та Кубок України з футболу"}
+    - {id: 167, cat: TV/Sport, desc: "Український спорт / Єврокубки"}
+    - {id: 168, cat: TV/Sport, desc: "Український спорт / Збірна України"}
+    - {id: 169, cat: TV/Sport, desc: "Український спорт / Закордонні чемпіонати"}
+    - {id: 54, cat: TV/Sport, desc: "Український спорт / Футбольне відео"}
+    - {id: 158, cat: TV/Sport, desc: "Український спорт / Баскетбол, хоккей, волейбол, гандбол, футзал"}
+    - {id: 159, cat: TV/Sport, desc: "Український спорт / Бокс, реслінг, бойові мистецтва"}
+    - {id: 160, cat: TV/Sport, desc: "Український спорт / Авто, мото"}
+    - {id: 161, cat: TV/Sport, desc: "Український спорт / Інший спорт, активний відпочинок"}
+    - {id: 136, cat: Movies/HD, desc: "HD українською"}
+    - {id: 96, cat: Movies/HD, desc: "HD українською / Фільми в HD"}
+    - {id: 173, cat: TV/HD, desc: "HD українською / Серіали в HD"}
+    - {id: 139, cat: Movies/HD, desc: "HD українською / Мультфільми в HD"}
+    - {id: 174, cat: TV/HD, desc: "HD українською / Мультсеріали в HD"}
+    - {id: 140, cat: TV/Documentary, desc: "HD українською / Документальні фільми в HD"}
+    - {id: 120, cat: Movies/DVD, desc: "DVD українською"}
+    - {id: 66, cat: Movies/DVD, desc: "DVD українською / Художні фільми та серіали в DVD"}
+    - {id: 66, cat: TV/SD, desc: "DVD українською / Художні фільми та серіали в DVD"}
+    - {id: 137, cat: Movies/DVD, desc: "DVD українською / Мультфільми та мультсеріали в DVD"}
+    - {id: 137, cat: TV/SD, desc: "DVD українською / Мультфільми та мультсеріали в DVD"}
+    - {id: 138, cat: Movies/DVD, desc: "DVD українською / Документальні фільми в DVD"}
+    - {id: 237, cat: Movies, desc: "Відео для мобільних (iOS, Android, Windows Phone)"}
+    - {id: 33, cat: Audio/Video, desc: "Звукові доріжки та субтитри"}
+    - {id: 8, cat: Audio, desc: "Українська музика (lossy)"}
+    - {id: 23, cat: Audio, desc: "Українська музика (lossy) / Поп, Естрада"}
+    - {id: 24, cat: Audio, desc: "Українська музика (lossy) / Джаз, Блюз"}
+    - {id: 43, cat: Audio, desc: "Українська музика (lossy) / Етно, Фольклор, Народна, Бардівська"}
+    - {id: 35, cat: Audio, desc: "Українська музика (lossy) / Інструментальна, Класична та неокласична"}
+    - {id: 37, cat: Audio, desc: "Українська музика (lossy) / Рок, Метал, Альтернатива, Панк, СКА"}
+    - {id: 36, cat: Audio, desc: "Українська музика (lossy) / Реп, Хіп-хоп, РнБ"}
+    - {id: 38, cat: Audio, desc: "Українська музика (lossy) / Електронна музика"}
+    - {id: 56, cat: Audio, desc: "Українська музика (lossy) / Невидане"}
+    - {id: 98, cat: Audio/Lossless, desc: "Українська музика (lossless)"}
+    - {id: 100, cat: Audio/Lossless, desc: "Українська музика (lossless) / Поп, Естрада"}
+    - {id: 101, cat: Audio/Lossless, desc: "Українська музика (lossless) / Джаз, Блюз"}
+    - {id: 102, cat: Audio/Lossless, desc: "Українська музика (lossless) / Етно, Фольклор, Народна, Бардівська"}
+    - {id: 103, cat: Audio/Lossless, desc: "Українська музика (lossless) / Інструментальна, Класична та неокласична"}
+    - {id: 104, cat: Audio/Lossless, desc: "Українська музика (lossless) / Рок, Метал, Альтернатива, Панк, СКА"}
+    - {id: 105, cat: Audio/Lossless, desc: "Українська музика (lossless) / Реп, Хіп-хоп, РнБ"}
+    - {id: 106, cat: Audio/Lossless, desc: "Українська музика (lossless) / Електронна музика"}
+    - {id: 11, cat: Books, desc: "Друкована література"}
+    - {id: 134, cat: Books, desc: "Друкована література / Українська художня література (до 1991 р.)"}
+    - {id: 177, cat: Books, desc: "Друкована література / Українська художня література (після 1991 р.)"}
+    - {id: 178, cat: Books, desc: "Друкована література / Зарубіжна художня література"}
+    - {id: 179, cat: Books, desc: "Друкована література / Наукова література (гуманітарні дисципліни)"}
+    - {id: 180, cat: Books, desc: "Друкована література / Наукова література (природничі дисципліни)"}
+    - {id: 183, cat: Books, desc: "Друкована література / Навчальна та довідкова"}
+    - {id: 181, cat: Books/Mags, desc: "Друкована література / Періодика"}
+    - {id: 182, cat: Books, desc: "Друкована література / Батькам та малятам"}
+    - {id: 184, cat: Books/Comics, desc: "Друкована література / Графіка (комікси, манґа, BD та інше)"}
+    - {id: 185, cat: Audio/Audiobook, desc: "Аудіокниги українською"}
+    - {id: 135, cat: Audio/Audiobook, desc: "Аудіокниги українською / Українська художня література"}
+    - {id: 186, cat: Audio/Audiobook, desc: "Аудіокниги українською / Зарубіжна художня література"}
+    - {id: 187, cat: Audio/Audiobook, desc: "Аудіокниги українською / Історія, біографістика, спогади"}
+    - {id: 189, cat: Audio/Audiobook, desc: "Аудіокниги українською / Сирий матеріал"}
+    - {id: 9, cat: PC, desc: "Windows"}
+    - {id: 25, cat: PC, desc: "Windows / Windows"}
+    - {id: 199, cat: PC, desc: "Windows / Офіс"}
+    - {id: 200, cat: PC, desc: "Windows / Антивіруси та безпека"}
+    - {id: 201, cat: PC, desc: "Windows / Мультимедія"}
+    - {id: 202, cat: PC, desc: "Windows / Утиліти, обслуговування, мережа"}
+    - {id: 239, cat: PC, desc: "Linux, Mac OS"}
+    - {id: 26, cat: PC, desc: "Linux, Mac OS / Linux"}
+    - {id: 27, cat: PC/Mac, desc: "Linux, Mac OS / Mac OS"}
+    - {id: 240, cat: PC, desc: "Інші OS"}
+    - {id: 211, cat: PC/Mobile-Android, desc: "Інші OS / Android"}
+    - {id: 122, cat: PC/Mobile-iOS, desc: "Інші OS / iOS"}
+    - {id: 40, cat: PC/Mobile-Other, desc: "Інші OS / Інші мобільні платформи"}
+    - {id: 241, cat: Other, desc: "Інше"}
+    - {id: 203, cat: Other, desc: "Інше / Інфодиски, електронні підручники, відеоуроки"}
+    - {id: 12, cat: Other, desc: "Інше / Шпалери, фотографії та зображення"}
+    - {id: 249, cat: Other, desc: "Інше / Веб-скрипти"}
+    - {id: 10, cat: PC/Games, desc: "Ігри українською"}
+    - {id: 28, cat: PC/Games, desc: "Ігри українською / PC ігри"}
+    - {id: 259, cat: PC/Games, desc: "Ігри українською / Mac ігри"}
+    - {id: 29, cat: PC/Games, desc: "Ігри українською / Українізації, доповнення, патчі..."}
+    - {id: 30, cat: PC/Games, desc: "Ігри українською / Мобільні та консольні ігри"}
+    - {id: 41, cat: PC/Mobile-iOS, desc: "Ігри українською / iOS"}
+    - {id: 212, cat: PC/Mobile-Android, desc: "Ігри українською / Android"}
+    - {id: 205, cat: PC/Games, desc: "Переклад ігор українською"}
+    - {id: 236, cat: Other, desc: "Закритий розділ"}
+    - {id: 71, cat: Other, desc: "Архіви"}
+    - {id: 72, cat: Movies, desc: "Архів відео"}
+    - {id: 72, cat: TV/HD, desc: "Архів відео"}
+    - {id: 73, cat: Other, desc: "Архів музики"}
+    - {id: 74, cat: Other, desc: "Архів програм"}
+    - {id: 75, cat: Other, desc: "Архів ігор"}
+    - {id: 76, cat: Other, desc: "Архів літератури"}
+    - {id: 121, cat: Other, desc: "Неоформлені"}
+    - {id: 45, cat: Movies, desc: "Неоформлене відео"}
+    - {id: 45, cat: TV/HD, desc: "Неоформлене відео"}
+    - {id: 46, cat: Other, desc: "Неоформлена музика"}
+    - {id: 47, cat: Other, desc: "Неоформлене програмне забезпечення"}
+    - {id: 48, cat: Other, desc: "Неоформлені ігри"}
+    - {id: 208, cat: Other, desc: "Неоформлена література"}
+
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+    movie-search: [q]
+    music-search: [q]
+    book-search: [q]
+
+settings:
+  - name: username
+    type: text
+    label: Username
+  - name: password
+    type: password
+    label: Password
+  - name: stripcyrillicletters
+    type: checkbox
+    label: "Strip Cyrillic letters and rebuild video titles"
+    default: true
+  - name: appendreleasegroup
+    type: checkbox
+    label: "Append release group (uploader) to the title"
+    default: true
+  - name: normalizequality
+    type: checkbox
+    label: "Normalize quality/source names (BDRemux -> BluRay Remux, BDRip -> BluRay, ...)"
+    default: true
+  - name: freeleechonly
+    type: checkbox
+    label: "Show freeleech-only results"
+    default: false
+  - name: info_limits
+    type: info
+    label: "About this indexer"
+    default: "An alternative Cardigann (YAML) indexer for Toloka with title-formatting enhancements: video forums are rebuilt into a Sonarr/Radarr-parseable shape (series name, SxxExx incl. ranges/counts, year, source/codec, edition, audio-language tag, release group) while music/books/etc. pass through unchanged. A Cardigann definition makes ONE request per search, so per-result detail-page data is unavailable: magnet links, resolution from MediaInfo, grab counts and IMDb/poster/file-count. See README.md."
+
+login:
+  path: login.php
+  method: post
+  inputs:
+    username: "{{ .Config.username }}"
+    password: "{{ .Config.password }}"
+    autologin: "on"
+    ssl: "on"
+    redirect: ""
+    login: "Вхід"
+  test:
+    path: tracker.php
+    selector: a[href*="logout=true"]
+
+search:
+  paths:
+    - path: tracker.php
+    - path: tracker.php
+      inputs:
+        start: 50
+  inputs:
+    $raw: "{{ range .Categories }}f[]={{.}}&{{end}}{{ if .Config.freeleechonly }}sds=1&{{ else }}{{ end }}"
+    nm: "{{ .Keywords }}"
+    o: 1
+    s: 2
+
+  keywordsfilters:
+    - name: re_replace
+      args: ["(?i)\\bS0*(\\d+)(?:E0*\\d+)?\\b", "Сезон $1"]
+
+  rows:
+    selector: table.forumline tr[class*="prow"]
+
+  fields:
+    # raw forum id (UNMAPPED) — the per-category gate keys on this.
+    forum:
+      selector: td.gen a
+      attribute: href
+      filters:
+        - {name: querystring, args: f}
+    category:
+      selector: td.gen a
+      attribute: href
+      filters:
+        - {name: querystring, args: f}
+    # _isvideo = 1 for the 48 reconstructable Movies/TV/Anime forums (sport + non-video excluded).
+    _isvideo:
+      text: "{{ .Result.forum }}"
+      filters:
+        - {name: re_replace, args: ["^(16|18|19|21|32|42|44|45|55|66|70|72|84|94|96|117|118|119|120|124|125|127|129|131|132|136|137|138|139|140|144|173|174|190|192|193|194|195|196|197|219|225|226|227|228|229|230|237)$", "1"]}
+        - {name: re_replace, args: ["^(?!1$).*$", ""]}
+    # _subsonly = 1 for the Ukrainian-subtitles tree (original-audio default).
+    _subsonly:
+      text: "{{ .Result.forum }}"
+      filters:
+        - {name: re_replace, args: ["^(190|70|192|193|195|194|196|197)$", "1"]}
+        - {name: re_replace, args: ["^(?!1$).*$", ""]}
+    # _dorebuild = 1 only when StripCyrillicLetters is on AND this is a video forum. When the user turns the
+    # toggle off, this is empty for EVERY row, so the title gate routes video through the honest pass-through too
+    # (mirrors the C#: strip=off keeps the original multi-language title instead of rebuilding it).
+    _dorebuild:
+      text: "{{ if .Config.stripcyrillicletters }}{{ .Result._isvideo }}{{ else }}{{ end }}"
+    # uploader -> transliterated release group (ASCII handles verbatim; spaces -> _; Anonymous kept).
+    uploader:
+      selector: "td:nth-child(4)"
+      filters:
+        - {name: trim}
+        - {name: re_replace, args: ["(?i)^(Anonymous|Анонім)$", "Anonymous"]}
+        - {name: replace, args: ["щ", "shch"]}
+        - {name: replace, args: ["ж", "zh"]}
+        - {name: replace, args: ["х", "kh"]}
+        - {name: replace, args: ["ц", "ts"]}
+        - {name: replace, args: ["ч", "ch"]}
+        - {name: replace, args: ["ш", "sh"]}
+        - {name: replace, args: ["ю", "iu"]}
+        - {name: replace, args: ["я", "ia"]}
+        - {name: replace, args: ["є", "ie"]}
+        - {name: replace, args: ["ї", "i"]}
+        - {name: replace, args: ["й", "i"]}
+        - {name: replace, args: ["ь", ""]}
+        - {name: replace, args: ["а", "a"]}
+        - {name: replace, args: ["б", "b"]}
+        - {name: replace, args: ["в", "v"]}
+        - {name: replace, args: ["г", "h"]}
+        - {name: replace, args: ["ґ", "g"]}
+        - {name: replace, args: ["д", "d"]}
+        - {name: replace, args: ["е", "e"]}
+        - {name: replace, args: ["з", "z"]}
+        - {name: replace, args: ["и", "y"]}
+        - {name: replace, args: ["і", "i"]}
+        - {name: replace, args: ["к", "k"]}
+        - {name: replace, args: ["л", "l"]}
+        - {name: replace, args: ["м", "m"]}
+        - {name: replace, args: ["н", "n"]}
+        - {name: replace, args: ["о", "o"]}
+        - {name: replace, args: ["п", "p"]}
+        - {name: replace, args: ["р", "r"]}
+        - {name: replace, args: ["с", "s"]}
+        - {name: replace, args: ["т", "t"]}
+        - {name: replace, args: ["у", "u"]}
+        - {name: replace, args: ["ф", "f"]}
+        - {name: replace, args: ["Щ", "Shch"]}
+        - {name: replace, args: ["Ж", "Zh"]}
+        - {name: replace, args: ["Х", "Kh"]}
+        - {name: replace, args: ["Ц", "Ts"]}
+        - {name: replace, args: ["Ч", "Ch"]}
+        - {name: replace, args: ["Ш", "Sh"]}
+        - {name: replace, args: ["Ю", "Iu"]}
+        - {name: replace, args: ["Я", "Ia"]}
+        - {name: replace, args: ["Є", "Ie"]}
+        - {name: replace, args: ["Ї", "I"]}
+        - {name: replace, args: ["Й", "I"]}
+        - {name: replace, args: ["А", "A"]}
+        - {name: replace, args: ["Б", "B"]}
+        - {name: replace, args: ["В", "V"]}
+        - {name: replace, args: ["Г", "H"]}
+        - {name: replace, args: ["Ґ", "G"]}
+        - {name: replace, args: ["Д", "D"]}
+        - {name: replace, args: ["Е", "E"]}
+        - {name: replace, args: ["З", "Z"]}
+        - {name: replace, args: ["И", "Y"]}
+        - {name: replace, args: ["І", "I"]}
+        - {name: replace, args: ["К", "K"]}
+        - {name: replace, args: ["Л", "L"]}
+        - {name: replace, args: ["М", "M"]}
+        - {name: replace, args: ["Н", "N"]}
+        - {name: replace, args: ["О", "O"]}
+        - {name: replace, args: ["П", "P"]}
+        - {name: replace, args: ["Р", "R"]}
+        - {name: replace, args: ["С", "S"]}
+        - {name: replace, args: ["Т", "T"]}
+        - {name: replace, args: ["У", "U"]}
+        - {name: replace, args: ["Ф", "F"]}
+        - {name: re_replace, args: ["[^A-Za-z0-9_.\\-& ]", ""]}
+        - {name: re_replace, args: ["\\s+", "_"]}
+    # _group = the release-group suffix, gated by the AppendReleaseGroup setting (empty -> no suffix appended).
+    # (Cardigann {{ if }} does not nest, so the config gate lives here and the "has a value" gate lives in the title.)
+    _group:
+      text: "{{ if .Config.appendreleasegroup }}{{ .Result.uploader }}{{ else }}{{ end }}"
+    # _t0 = shared pre-clean + season/episode normalization (the basis for name/quality/extras).
+    _t0:
+      selector: td.topictitle a
+      filters:
+        - {name: re_replace, args: ["\\p{Cf}", ""]}
+        - {name: re_replace, args: ["\\p{Pd}", "-"]}
+        - {name: re_replace, args: ["[\\(\\[]\\s*\\d{1,2}[.\\-/]\\d{1,2}[.\\-/]((?:19|20)\\d{2})\\s*[\\)\\]]", "($1)"]}
+        - {name: re_replace, args: ["[\\(\\[]\\s*((?:19|20)\\d{2})[.\\-/]\\d{1,2}[.\\-/]\\d{1,2}\\s*[\\)\\]]", "($1)"]}
+        - {name: re_replace, args: ["\\(\\s*((?:19|20)\\d{2})(?:\\s*[-,/]\\s*\\d{2,4})*\\s*[-,/]\\s*((?:19|20)\\d{2})\\s*\\)", "($1-$2)"]}
+        - {name: re_replace, args: ["(\\d{3,4})р", "$1p"]}
+        - {name: re_replace, args: ["(?i)\\bEpisodes?\\s+(\\d+)\\s*-\\s*(\\d+)\\b", "E$1-E$2"]}
+        - {name: re_replace, args: ["(?i)\\bEpisode\\s+(\\d+)\\b", "E$1"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:[СC]езон|[сc]езон|[Ss]eason)\\s*(\\d+)\\s*[,;]\\s*(?:частина|cour)\\s*\\d+\\s*[,;]\\s*сері[йяії]\\s*(\\d+)\\s*-\\s*(\\d+)\\s*з\\s*[\\dXxХх?]+\\)?", "S$1E$2-E$3"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:[СC]езон|[сc]езон|[Ss]eason)\\s*(\\d+)\\s*[,;]\\s*сері[йї]\\s*(\\d+)\\s*-\\s*(\\d+)\\s*з\\s*[^\\s)]+\\)?", "S$1E$2-E$3"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:[СC]езон|[сc]езон|[Ss]eason)\\s*(\\d+)\\s*[,;]\\s*сері[йї]\\s*(\\d+)\\s*-\\s*(\\d+)\\)?", "S$1E$2-E$3"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:[СC]езон|[сc]езон|[Ss]eason)\\s*(\\d+)\\s*[,;]\\s*(\\d+)\\s*-\\s*(\\d+)\\s*з\\s*[\\dXxХх?]+\\)?", "S$1E$2-E$3"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:[СC]езон|[сc]езон|[Ss]eason)\\s*(\\d+)\\s*[,;]\\s*(\\d+)\\s*з\\s*[\\dXxХх?]+\\)?", "S$1E01-E$2"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:[СC]езон|[сc]езон|[Ss]eason)\\s*(\\d+)\\s*[,;]\\s*сері[яю]\\s*(\\d+)\\s*з\\s*[\\dXxХх?]+\\)?", "S$1E$2"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:[СC]езон|[сc]езон|[Ss]eason)\\s*(\\d+)\\s*[,;]\\s*сері[йї]\\s*(\\d+)\\s*з\\s*[\\dXxХх?]+\\)?", "S$1E01-E$2"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:[СC]езон|[сc]езон|[Ss]eason)\\s*(\\d+)\\s*[,;]\\s*(?:епізод|episode|серія)\\s*(\\d+)\\s*\\)?", "S$1E$2"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:Mini[\\s-]?Series|міні[\\s-]?серіал\\w*)\\s*[)]?", "S01"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:[СC]езон\\w*|[Ss]eason)\\s*(\\d+)\\s*-\\s*(\\d+)\\s*[)]?", "S$1-S$2"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*(?:[СC]езон|[сc]езон|[Ss]eason)\\s*(\\d+)\\s*[)]?", "S$1"]}
+        - {name: re_replace, args: ["(?i)[СC]ері[йяії]\\s*(\\d+)\\s*-\\s*\\d+\\s*(?:,\\s*\\d+\\s*-\\s*\\d+\\s*)*,\\s*\\d+\\s*-\\s*(\\d+)", "E$1-E$2"]}
+        - {name: re_replace, args: ["(?i)[(]?\\s*[СC]ері[йяії]\\s*(\\d+)\\s*-\\s*(\\d+)\\s*(?:[/з]\\s*[\\dXxХх?]+)?\\s*[)]?", "E$1-E$2"]}
+        - {name: re_replace, args: ["[(]\\s*(\\d+)\\s*-\\s*(\\d+)\\s*з\\s*[\\dXxХх?]+\\s*[)]", "E$1-E$2"]}
+        - {name: re_replace, args: ["S(\\d)(?!\\d)", "S0$1"]}
+        - {name: re_replace, args: ["E(\\d)(?![\\dE])", "E0$1"]}
+        - {name: re_replace, args: ["E(\\d{2,3})-(\\d{2,3})\\b", "E$1-E$2"]}
+        - {name: re_replace, args: ["S(\\d{2,3})-(\\d{2,3})(?![\\dEe])", "S$1-S$2"]}
+        - {name: re_replace, args: ["E(\\d{2,3})-E\\1\\b", "E$1"]}
+    # _name = series name (drop year-onward, SE tokens, brackets; pick the Latin alias).
+    _name:
+      text: "{{ .Result._t0 }}"
+      filters:
+        - {name: re_replace, args: ["^(.*)[\\(\\[]\\s*(?:19|20)\\d{2}.*$", "$1"]}
+        - {name: re_replace, args: ["(?i)\\s*\\b(?:WEB-?DL\\w*|WEB-?Rip|WB-?DLRip|BD\\s?Rip|BDRemux|BRRip|Blu-?Ray|HD-?DVDRip|HDDVDRip|HDTV\\w*|HDRip|DVD\\s?Rip|DVD\\s?Remux|DVD\\s?Upscale|DVD-?[59]|DVD|SAT\\w*Rip|VHSRip|TVRip|CAMRip|SiteRip|IPTV\\w*|PDTVRip|DVB\\w*Rip|UHDTVRip|LDR?Rip|VCDRip|DSRip|DTVRip|DCPRip|\\d{3,4}[pi]|4K|2K)\\b.*$", ""]}
+        - {name: re_replace, args: ["(?i)\\bS\\d{1,3}(?:-S?\\d{1,3})?(?:E\\d{1,3}(?:-E?\\d{1,3})?)?\\b|\\bE\\d{1,3}(?:-E?\\d{1,3})?\\b", " "]}
+        - {name: re_replace, args: ["\\([^()]*\\)|\\[[^\\[\\]]*\\]", " "]}
+        - {name: re_replace, args: ["[()\\[\\]]", " "]}
+        - {name: re_replace, args: ["[\"«»“”]|\\x27\\x27+", " "]}
+        - {name: re_replace, args: ["(?i)\\s*\\+?\\s*\\b(?:OVA|ONA|OAD|Specials|Special\\s+Episodes?|ОВА|ОАД|спец\\w*|спешл\\w*)\\b(?:\\s*\\d+\\s*/\\s*\\d+)?", " "]}
+        - {name: re_replace, args: ["(?i)\\b\\d+(?:nd|st|rd|th)?[\\s-]*(?:сезон\\w*|season)\\b", " "]}
+        - {name: re_replace, args: ["\\s[/|\\\\]\\s[^/|\\\\A-Za-z]*$", ""]}
+        - {name: re_replace, args: ["^.*\\s[/|\\\\]\\s(.+)$", "$1"]}
+        - {name: re_replace, args: ["(?i)\\b(?:\\d{3,4}[pi]|x264|x265|XviD|DivX|AV1|WEB-DL|WEBRip|BluRay|Remux|HDTV|PDTV|SDTV|DVDRip|DVD|DCPRip|TVRip|CAM|UHD|Hybrid|HDR10\\+|HDR10|HDR|HLG|SDR|DV|3D)\\b", " "]}
+        - {name: re_replace, args: ["\\s+([,.])", "$1"]}
+        - {name: re_replace, args: ["\\s{2,}", " "]}
+        - {name: re_replace, args: ["(?i)^[\\s&,.!?+_|/\\\\:;`ʼ-]+", ""]}
+        - {name: re_replace, args: ["(?i)[\\s&,.!?+_|/\\\\:;`ʼ-]+$", ""]}
+        - name: trim
+    # _se = the season/episode token (combined SxxExx preferred), read from _t0.
+    _se:
+      text: "{{ .Result._t0 }}"
+      filters:
+        - {name: re_replace, args: ["(?i)^.*?(\\bS\\d{1,3}(?:-S?\\d{1,3})?(?:E\\d{1,3}(?:-E?\\d{1,3})?)?\\b|\\bE\\d{1,3}(?:-E?\\d{1,3})?\\b).*$", "$1"]}
+        - {name: re_replace, args: ["(?i)^(?!S\\d|E\\d).*$", ""]}
+    # _year = the (year) — last one wins (greedy).
+    _year:
+      text: "{{ .Result._t0 }}"
+      filters:
+        - {name: re_replace, args: ["(?i)^.*[\\(\\[]((?:19|20)\\d{2}(?:-(?:19|20)?\\d{2})?)[^\\)\\]]*[\\)\\]].*$", "$1"]}
+        - {name: re_replace, args: ["(?i)^(?!(?:19|20)\\d{2}).*$", ""]}
+    # _qual = source/resolution/codec block from the tail (clutter stripped), source names normalized.
+    _qual:
+      text: "{{ .Result._t0 }}"
+      filters:
+        - {name: re_replace, args: ["^.*[\\(\\[](?:19|20)\\d{2}[^\\)\\]]*[\\)\\]]", ""]}
+        - {name: re_replace, args: ["(?i)\\b-Rip\\b", "Rip"]}
+        - {name: re_replace, args: ["(?i)\\bUHDTVRip\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bWEB[-\\s]?DL[-\\s]?Rip\\b", "WEBRip"]}
+        - {name: re_replace, args: ["(?i)\\bWB[-\\s]?DLRip\\b", "WEBRip"]}
+        - {name: re_replace, args: ["(?i)\\bWEBDL\\b", "WEB-DL"]}
+        - {name: re_replace, args: ["(?i)\\bHD[-\\s]?DVDRip\\b", "BluRay"]}
+        - {name: re_replace, args: ["(?i)\\bHDTV[-\\s]?Rip\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bHDTRip\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bHDRip\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bBDRemux\\b", "BluRay Remux"]}
+        - {name: re_replace, args: ["(?i)\\bBD[\\s]?Rip\\b", "BluRay"]}
+        - {name: re_replace, args: ["(?i)\\bBRRip\\b", "BluRay"]}
+        - {name: re_replace, args: ["(?i)\\bBlu[-\\s]?Ray\\b", "BluRay"]}
+        - {name: re_replace, args: ["(?i)\\bDVD[\\s]?Remux\\b", "DVD Remux"]}
+        - {name: re_replace, args: ["(?i)\\bDVD[\\s]?Upscale\\b", "DVD"]}
+        - {name: re_replace, args: ["(?i)\\b\\d+\\s?x\\s?DVD[59]\\b", "DVD"]}
+        - {name: re_replace, args: ["(?i)\\bDVD[59]\\s?\\+\\s?DVD[59]\\b", "DVD"]}
+        - {name: re_replace, args: ["(?i)\\bVCDRip\\b", "SDTV"]}
+        - {name: re_replace, args: ["(?i)\\bDVB[\\s]?Rip\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bIPTVRemux\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bSATRemux\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bDVBRemux\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bIPTVRip\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bIPTV\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bPDTVRip\\b", "PDTV"]}
+        - {name: re_replace, args: ["(?i)\\bSiteRip\\b", "WEBRip"]}
+        - {name: re_replace, args: ["(?i)\\bDSRip\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bDTVRip\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bLDR?Rip\\b", "SDTV"]}
+        - {name: re_replace, args: ["(?i)\\bVHSRip\\b", "SDTV"]}
+        - {name: re_replace, args: ["(?i)\\bSATRip\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)\\bCAMRip\\b", "CAM"]}
+        - {name: re_replace, args: ["(?i)\\bDVD[59]\\b", "DVD"]}
+        - {name: re_replace, args: ["(?i)\\bDVD-[59]\\b", "DVD"]}
+        - {name: re_replace, args: ["(?i)\\bHDV\\b", "HDTV"]}
+        - {name: re_replace, args: ["(?i)(?<!DVD )(?<!BluRay )\\bRemux\\b", "BluRay Remux"]}
+        - {name: re_replace, args: ["(?i)\\bH\\.?\\s?265\\b", "x265"]}
+        - {name: re_replace, args: ["(?i)\\bHEVC\\b", "x265"]}
+        - {name: re_replace, args: ["(?i)\\bx265\\b", "x265"]}
+        - {name: re_replace, args: ["(?i)\\bH\\.?\\s?264\\b", "x264"]}
+        - {name: re_replace, args: ["(?i)\\bAVC\\b", "x264"]}
+        - {name: re_replace, args: ["(?i)\\bx264\\b", "x264"]}
+        - {name: re_replace, args: ["(?i)\\b4K\\b", "2160p"]}
+        - {name: re_replace, args: ["(?i)\\b2K\\b", "1440p"]}
+        - {name: re_replace, args: ["(?i)\\bDoVi\\b", "DV"]}
+        - {name: re_replace, args: ["(?i)\\bDolby\\s?Vision\\b", "DV"]}
+        - {name: re_replace, args: ["(?i)\\b((?:Rip|DL|HDTV|HDV|DVD|Ray|Remux|WEB|BD|HD|UHD|CAM|SDTV|PDTV)[^\\d]{1,4})(480|576|720|1080|1440|2160)\\b(?![pi\\d])", "$1$2p"]}
+        - {name: re_replace, args: ["(?<=[A-Za-z])-(x26[45])\\b", " $1"]}
+        - {name: re_replace, args: ["(?i)^.*?(?=\\b(?:\\d{3,4}[pi]|x264|x265|XviD|DivX|AV1|WEB-DL|WEBRip|BluRay|Remux|HDTV|PDTV|SDTV|DVDRip|DVD|DCPRip|TVRip|CAM|UHD|Hybrid|HDR10\\+|HDR10|HDR|HLG|SDR|DV|3D)\\b)", ""]}
+        - {name: re_replace, args: ["\\[[^\\]]*\\]", ""]}
+        - {name: re_replace, args: ["(?i)\\b(?:AI[\\s\\-]?Rem(?:aster(?:ed)?)?|AI[\\s\\-]?Upscale[d]?|REMASTERED|REMASTER|PROPER|REPACK|RERIP|IMAX|Uncut|Unrated|Director\\x27?s\\s*Cut|Extended(?:\\s*(?:Cut|Edition))?|Theatrical(?:\\s*Cut)?|Recut|Euro(?:pean)?\\s*Cut|Open\\s*Matte|Silent\\s*Version|Collector\\x27?s\\s*Edition|Limited\\s*Edition|Special\\s*Edition)\\b", ""]}
+        - {name: re_replace, args: ["(?i)\\b(?:Частин[аиі]|Cour|Parts?)\\s*\\d+(?:\\s*[-,]\\s*\\d+)*", ""]}
+        - {name: re_replace, args: ["(?i)\\b(?:OVA|ONA|OAD|Specials)\\b", ""]}
+        - {name: re_replace, args: ["(?i)\\s*\\|\\s*[Ss]ub(?:title)?s?\\b.*$", ""]}
+        - {name: re_replace, args: ["(?i)(?<![A-Za-z])(?:Ukrainian|Ukr|Eng|Jap|Jpn|Rus|Ger|Deu|Fre|Fra|Fr|Ita|Spa|Esp|Pol|Kor|Cze|Che|Chi|Chn|Dan|Swe|Tur|Turk|Hin|Por|Mul|Multi|Bel|Rum|Rom|Ice|Isl|Fin|Heb|Gre|Ell|Nor|Hun|Dut|Nld|Tha|Vie|Slo|Bul|Cro|Srp|Geo|Arm|Ara|Est|Lit|Lav)\\s+sub(?:title)?s?\\b.*$", ""]}
+        - {name: re_replace, args: ["(?i)\\s*[\\|/]?\\s*\\b(?:\\d+\\s*x|x\\s*[1-9])?\\s*(?:Ukrainian|Ukr|Eng|Jap|Jpn|Rus|Ger|Deu|Fre|Fra|Fr|Ita|Spa|Esp|Pol|Kor|Cze|Che|Chi|Chn|Dan|Swe|Tur|Turk|Hin|Por|Mul|Multi|Bel|Rum|Rom|Ice|Isl|Fin|Heb|Gre|Ell|Nor|Hun|Dut|Nld|Tha|Vie|Slo|Bul|Cro|Srp|Geo|Arm|Ara|Est|Lit|Lav)\\b", ""]}
+        - {name: re_replace, args: ["(?i)\\s*[\\|/]?\\s*\\b(?:\\d+\\s*x|x\\s*[1-9])?\\s*(?:Ukrainian|Ukr|Eng|Jap|Jpn|Rus|Ger|Deu|Fre|Fra|Fr|Ita|Spa|Esp|Pol|Kor|Cze|Che|Chi|Chn|Dan|Swe|Tur|Turk|Hin|Por|Mul|Multi|Bel|Rum|Rom|Ice|Isl|Fin|Heb|Gre|Ell|Nor|Hun|Dut|Nld|Tha|Vie|Slo|Bul|Cro|Srp|Geo|Arm|Ara|Est|Lit|Lav)\\b", ""]}
+        - {name: re_replace, args: ["(?i)\\b(?:AC3|DTS|DD5\\.1|DDP?5\\.1|5\\.1|2\\.0|10\\s?bit|10bit|8bit|FLAC|AAC|kbps|\\d+\\s*kbps)\\b", ""]}
+        - {name: re_replace, args: ["(?i)\\b(?:IQIYI|Netflix|NF|AMZN|Amazon|DSNP|Disney\\+?|HULU|HMAX|ATVP|Crunchyroll|CR|VIKI|B-?Global|Bilibili|iView|YouTube|YT)\\b", ""]}
+        - {name: re_replace, args: ["[\\|/]+", " "]}
+        - {name: re_replace, args: ["\\s{2,}", " "]}
+        - name: trim
+    # _qual_raw = same block but with source names left verbatim (codec/resolution/colour still normalized) —
+    # used when NormalizeQuality is off so Toloka's original tokens (BDRemux, SiteRip, ...) survive.
+    _qual_raw:
+      text: "{{ .Result._t0 }}"
+      filters:
+        - {name: re_replace, args: ["^.*[\\(\\[](?:19|20)\\d{2}[^\\)\\]]*[\\)\\]]", ""]}
+        - {name: re_replace, args: ["(?i)\\bH\\.?\\s?265\\b", "x265"]}
+        - {name: re_replace, args: ["(?i)\\bHEVC\\b", "x265"]}
+        - {name: re_replace, args: ["(?i)\\bx265\\b", "x265"]}
+        - {name: re_replace, args: ["(?i)\\bH\\.?\\s?264\\b", "x264"]}
+        - {name: re_replace, args: ["(?i)\\bAVC\\b", "x264"]}
+        - {name: re_replace, args: ["(?i)\\bx264\\b", "x264"]}
+        - {name: re_replace, args: ["(?i)\\b4K\\b", "2160p"]}
+        - {name: re_replace, args: ["(?i)\\b2K\\b", "1440p"]}
+        - {name: re_replace, args: ["(?i)\\bDoVi\\b", "DV"]}
+        - {name: re_replace, args: ["(?i)\\bDolby\\s?Vision\\b", "DV"]}
+        - {name: re_replace, args: ["(?i)\\b((?:Rip|DL|HDTV|HDV|DVD|Ray|Remux|WEB|BD|HD|UHD|CAM|SDTV|PDTV)[^\\d]{1,4})(480|576|720|1080|1440|2160)\\b(?![pi\\d])", "$1$2p"]}
+        - {name: re_replace, args: ["(?<=[A-Za-z])-(x26[45])\\b", " $1"]}
+        - {name: re_replace, args: ["(?i)^.*?(?=\\b(?:\\d{3,4}[pi]|x264|x265|XviD|DivX|AV1|WEB-DL|WEBRip|BluRay|Remux|HDTV|PDTV|SDTV|DVDRip|DVD|DCPRip|TVRip|CAM|UHD|Hybrid|HDR10\\+|HDR10|HDR|HLG|SDR|DV|3D|UHDTVRip|WEB-?DL-?Rip|WB-?DLRip|WEBDL|HD-?DVDRip|HDTV-?Rip|HDTRip|HDRip|BDRemux|BD\\s?Rip|BRRip|Blu-?Ray|DVD\\s?Remux|DVD\\s?Upscale|VCDRip|DVB\\s?Rip|IPTV\\w*|SAT\\w*Rip|SATRemux|DVBRemux|PDTVRip|SiteRip|DSRip|DTVRip|LDR?Rip|VHSRip|CAMRip|DVD-?[59]|HDV)\\b)", ""]}
+        - {name: re_replace, args: ["\\[[^\\]]*\\]", ""]}
+        - {name: re_replace, args: ["(?i)\\b(?:AI[\\s\\-]?Rem(?:aster(?:ed)?)?|AI[\\s\\-]?Upscale[d]?|REMASTERED|REMASTER|PROPER|REPACK|RERIP|IMAX|Uncut|Unrated|Director\\x27?s\\s*Cut|Extended(?:\\s*(?:Cut|Edition))?|Theatrical(?:\\s*Cut)?|Recut|Euro(?:pean)?\\s*Cut|Open\\s*Matte|Silent\\s*Version|Collector\\x27?s\\s*Edition|Limited\\s*Edition|Special\\s*Edition)\\b", ""]}
+        - {name: re_replace, args: ["(?i)\\b(?:Частин[аиі]|Cour|Parts?)\\s*\\d+(?:\\s*[-,]\\s*\\d+)*", ""]}
+        - {name: re_replace, args: ["(?i)\\b(?:OVA|ONA|OAD|Specials)\\b", ""]}
+        - {name: re_replace, args: ["(?i)\\s*\\|\\s*[Ss]ub(?:title)?s?\\b.*$", ""]}
+        - {name: re_replace, args: ["(?i)(?<![A-Za-z])(?:Ukrainian|Ukr|Eng|Jap|Jpn|Rus|Ger|Deu|Fre|Fra|Fr|Ita|Spa|Esp|Pol|Kor|Cze|Che|Chi|Chn|Dan|Swe|Tur|Turk|Hin|Por|Mul|Multi|Bel|Rum|Rom|Ice|Isl|Fin|Heb|Gre|Ell|Nor|Hun|Dut|Nld|Tha|Vie|Slo|Bul|Cro|Srp|Geo|Arm|Ara|Est|Lit|Lav)\\s+sub(?:title)?s?\\b.*$", ""]}
+        - {name: re_replace, args: ["(?i)\\s*[\\|/]?\\s*\\b(?:\\d+\\s*x|x\\s*[1-9])?\\s*(?:Ukrainian|Ukr|Eng|Jap|Jpn|Rus|Ger|Deu|Fre|Fra|Fr|Ita|Spa|Esp|Pol|Kor|Cze|Che|Chi|Chn|Dan|Swe|Tur|Turk|Hin|Por|Mul|Multi|Bel|Rum|Rom|Ice|Isl|Fin|Heb|Gre|Ell|Nor|Hun|Dut|Nld|Tha|Vie|Slo|Bul|Cro|Srp|Geo|Arm|Ara|Est|Lit|Lav)\\b", ""]}
+        - {name: re_replace, args: ["(?i)\\s*[\\|/]?\\s*\\b(?:\\d+\\s*x|x\\s*[1-9])?\\s*(?:Ukrainian|Ukr|Eng|Jap|Jpn|Rus|Ger|Deu|Fre|Fra|Fr|Ita|Spa|Esp|Pol|Kor|Cze|Che|Chi|Chn|Dan|Swe|Tur|Turk|Hin|Por|Mul|Multi|Bel|Rum|Rom|Ice|Isl|Fin|Heb|Gre|Ell|Nor|Hun|Dut|Nld|Tha|Vie|Slo|Bul|Cro|Srp|Geo|Arm|Ara|Est|Lit|Lav)\\b", ""]}
+        - {name: re_replace, args: ["(?i)\\b(?:AC3|DTS|DD5\\.1|DDP?5\\.1|5\\.1|2\\.0|10\\s?bit|10bit|8bit|FLAC|AAC|kbps|\\d+\\s*kbps)\\b", ""]}
+        - {name: re_replace, args: ["(?i)\\b(?:IQIYI|Netflix|NF|AMZN|Amazon|DSNP|Disney\\+?|HULU|HMAX|ATVP|Crunchyroll|CR|VIKI|B-?Global|Bilibili|iView|YouTube|YT)\\b", ""]}
+        - {name: re_replace, args: ["[\\|/]+", " "]}
+        - {name: re_replace, args: ["\\s{2,}", " "]}
+        - name: trim
+    # _qualpick = the quality block the title uses, selected by the NormalizeQuality setting.
+    _qualpick:
+      text: "{{ if .Config.normalizequality }}{{ .Result._qual }}{{ else }}{{ .Result._qual_raw }}{{ end }}"
+    # _extras = edition / part / specials markers, read from the RAW title (BEFORE the season/episode
+    # rules consume "частина N", so "Part N" survives).
+    _extras:
+      selector: td.topictitle a
+      filters:
+        - {name: re_replace, args: ["(?i)\\bЧастин[аиі]\\b", "Part"]}
+        - {name: re_replace, args: ["(?i)\\bAi[ \\-]?Rem(?:aster(?:ed)?)?\\b", "AI Remastered"]}
+        - {name: re_replace, args: ["(?i)\\bAi[ \\-]?Upscale[d]?\\b", "AI Upscaled"]}
+        - {name: re_replace, args: ["(?i)^.*?\\b(Part\\s*\\d+(?:\\s*[-,]\\s*\\d+)*|Parts\\s*\\d+(?:\\s*[-,]\\s*\\d+)*|PROPER|REPACK|RERIP|REMASTERED|REMASTER|Director\\x27?s\\s*Cut|Extended(?:\\s*(?:Cut|Edition))?|Special\\s*Edition|Collector\\x27?s\\s*Edition|Limited\\s*Edition|Silent\\s*Version|Open\\s*Matte|(?:The\\s+)?Complete\\s+Restored(?:\\s*Edition)?|Recut|Euro\\s*Cut|European\\s*Cut|AI[\\s\\-]?Upscale[d]?|Uncut|Unrated|Theatrical(?:\\s*Cut)?|IMAX|AI[\\s\\-]?Rem(?:aster(?:ed)?)?|OVA|ONA|OAD|Specials|Special\\s+Episodes?|спецвипуск\\w*|спецепізод\\w*|спецсері\\w*|спешл\\w*)\\b.*$", "$1"]}
+        - {name: re_replace, args: ["(?i)^(?!(?:Part|Parts|PROPER|REPACK|RERIP|REMASTERED|REMASTER|Director|Extended|Special|Collector|Limited|Silent|Open|Theatrical|Complete|Recut|Euro|European|AI|Uncut|Unrated|IMAX|OVA|ONA|OAD|Specials|спец|спешл)\\b).*$", ""]}
+        - {name: trim}
+    # lang for the two forum-default conventions; the gate picks which one to apply.
+    _lang_other:
+      text: "{{ .Result._t0 }}"
+      filters:
+        - {name: re_replace, args: ["(?i)^.*?[\\(\\[](?:19|20)\\d{2}(?:\\s*[-,/]\\s*(?:(?:19|20)\\d{2}|\\d{2}))*\\s*[\\)\\]]", ""]}
+        - {name: re_replace, args: ["(?i)\\s*\\|.*$", ""]}
+        - {name: re_replace, args: ["(?i)(?<![A-Za-z])(?:Ukrainian|Ukr|Eng|Jap|Jpn|Rus|Ger|Deu|Fre|Fra|Fr|Ita|Spa|Esp|Pol|Kor|Cze|Che|Chi|Chn|Dan|Swe|Tur|Turk|Hin|Por|Mul|Multi|Bel|Rum|Rom|Ice|Isl|Fin|Heb|Gre|Ell|Nor|Hun|Dut|Nld|Tha|Vie|Slo|Bul|Cro|Srp|Geo|Arm|Ara|Est|Lit|Lav)\\s+sub(?:title)?s?\\b.*$", ""]}
+        - {name: re_replace, args: ["(?i)\\bsub(?:title)?s?\\b.*$", ""]}
+        - {name: re_replace, args: ["(?i)^.*\\bUkr\\w*\\b.*$", "Ukrainian"]}
+        - {name: re_replace, args: ["(?i)^(?!Ukrainian$).*?\\b(?:\\d+\\s*x|x\\s*[1-9])?\\s*(Ukrainian|Ukr|Eng|Jap|Jpn|Rus|Ger|Deu|Fre|Fra|Fr|Ita|Spa|Esp|Pol|Kor|Cze|Che|Chi|Chn|Dan|Swe|Tur|Turk|Hin|Por|Mul|Multi|Bel|Rum|Rom|Ice|Isl|Fin|Heb|Gre|Ell|Nor|Hun|Dut|Nld|Tha|Vie|Slo|Bul|Cro|Srp|Geo|Arm|Ara|Est|Lit|Lav)\\b.*$", "$1"]}
+        - {name: re_replace, args: ["(?i)^Ukr$", "Ukrainian"]}
+        - {name: re_replace, args: ["(?i)^Eng$", "English"]}
+        - {name: re_replace, args: ["(?i)^Jap$", "Japanese"]}
+        - {name: re_replace, args: ["(?i)^Jpn$", "Japanese"]}
+        - {name: re_replace, args: ["(?i)^Rus$", "Russian"]}
+        - {name: re_replace, args: ["(?i)^Ger$", "German"]}
+        - {name: re_replace, args: ["(?i)^Deu$", "German"]}
+        - {name: re_replace, args: ["(?i)^Fre$", "French"]}
+        - {name: re_replace, args: ["(?i)^Fra$", "French"]}
+        - {name: re_replace, args: ["(?i)^Fr$", "French"]}
+        - {name: re_replace, args: ["(?i)^Ita$", "Italian"]}
+        - {name: re_replace, args: ["(?i)^Spa$", "Spanish"]}
+        - {name: re_replace, args: ["(?i)^Esp$", "Spanish"]}
+        - {name: re_replace, args: ["(?i)^Pol$", "Polish"]}
+        - {name: re_replace, args: ["(?i)^Kor$", "Korean"]}
+        - {name: re_replace, args: ["(?i)^Cze$", "Czech"]}
+        - {name: re_replace, args: ["(?i)^Che$", "Czech"]}
+        - {name: re_replace, args: ["(?i)^Chi$", "Chinese"]}
+        - {name: re_replace, args: ["(?i)^Chn$", "Chinese"]}
+        - {name: re_replace, args: ["(?i)^Dan$", "Danish"]}
+        - {name: re_replace, args: ["(?i)^Swe$", "Swedish"]}
+        - {name: re_replace, args: ["(?i)^Tur$", "Turkish"]}
+        - {name: re_replace, args: ["(?i)^Turk$", "Turkish"]}
+        - {name: re_replace, args: ["(?i)^Hin$", "Hindi"]}
+        - {name: re_replace, args: ["(?i)^Por$", "Portuguese"]}
+        - {name: re_replace, args: ["(?i)^Mul$", "MULTi"]}
+        - {name: re_replace, args: ["(?i)^Multi$", "MULTi"]}
+        - {name: re_replace, args: ["(?i)^Bel$", "Belarusian"]}
+        - {name: re_replace, args: ["(?i)^Rum$", "Romanian"]}
+        - {name: re_replace, args: ["(?i)^Rom$", "Romanian"]}
+        - {name: re_replace, args: ["(?i)^Ice$", "Icelandic"]}
+        - {name: re_replace, args: ["(?i)^Isl$", "Icelandic"]}
+        - {name: re_replace, args: ["(?i)^Fin$", "Finnish"]}
+        - {name: re_replace, args: ["(?i)^Heb$", "Hebrew"]}
+        - {name: re_replace, args: ["(?i)^Gre$", "Greek"]}
+        - {name: re_replace, args: ["(?i)^Ell$", "Greek"]}
+        - {name: re_replace, args: ["(?i)^Nor$", "Norwegian"]}
+        - {name: re_replace, args: ["(?i)^Hun$", "Hungarian"]}
+        - {name: re_replace, args: ["(?i)^Dut$", "Dutch"]}
+        - {name: re_replace, args: ["(?i)^Nld$", "Dutch"]}
+        - {name: re_replace, args: ["(?i)^Tha$", "Thai"]}
+        - {name: re_replace, args: ["(?i)^Vie$", "Vietnamese"]}
+        - {name: re_replace, args: ["(?i)^Slo$", "Slovak"]}
+        - {name: re_replace, args: ["(?i)^Bul$", "Bulgarian"]}
+        - {name: re_replace, args: ["(?i)^Cro$", "Croatian"]}
+        - {name: re_replace, args: ["(?i)^Srp$", "Serbian"]}
+        - {name: re_replace, args: ["(?i)^Geo$", "Georgian"]}
+        - {name: re_replace, args: ["(?i)^Arm$", "Armenian"]}
+        - {name: re_replace, args: ["(?i)^Ara$", "Arabic"]}
+        - {name: re_replace, args: ["(?i)^Est$", "Estonian"]}
+        - {name: re_replace, args: ["(?i)^Lit$", "Lithuanian"]}
+        - {name: re_replace, args: ["(?i)^Lav$", "Latvian"]}
+        - {name: re_replace, args: ["(?i)^(?!Arabic$)(?!Armenian$)(?!Belarusian$)(?!Bulgarian$)(?!Chinese$)(?!Croatian$)(?!Czech$)(?!Danish$)(?!Dutch$)(?!English$)(?!Estonian$)(?!Finnish$)(?!French$)(?!Georgian$)(?!German$)(?!Greek$)(?!Hebrew$)(?!Hindi$)(?!Hungarian$)(?!Icelandic$)(?!Italian$)(?!Japanese$)(?!Korean$)(?!Latvian$)(?!Lithuanian$)(?!MULTi$)(?!Norwegian$)(?!Polish$)(?!Portuguese$)(?!Romanian$)(?!Russian$)(?!Serbian$)(?!Slovak$)(?!Spanish$)(?!Swedish$)(?!Thai$)(?!Turkish$)(?!Ukrainian$)(?!Vietnamese$).*$", "Ukrainian"]}
+    _lang_subs:
+      text: "{{ .Result._t0 }}"
+      filters:
+        - {name: re_replace, args: ["(?i)^.*?[\\(\\[](?:19|20)\\d{2}(?:\\s*[-,/]\\s*(?:(?:19|20)\\d{2}|\\d{2}))*\\s*[\\)\\]]", ""]}
+        - {name: re_replace, args: ["(?i)\\s*\\|.*$", ""]}
+        - {name: re_replace, args: ["(?i)(?<![A-Za-z])(?:Ukrainian|Ukr|Eng|Jap|Jpn|Rus|Ger|Deu|Fre|Fra|Fr|Ita|Spa|Esp|Pol|Kor|Cze|Che|Chi|Chn|Dan|Swe|Tur|Turk|Hin|Por|Mul|Multi|Bel|Rum|Rom|Ice|Isl|Fin|Heb|Gre|Ell|Nor|Hun|Dut|Nld|Tha|Vie|Slo|Bul|Cro|Srp|Geo|Arm|Ara|Est|Lit|Lav)\\s+sub(?:title)?s?\\b.*$", ""]}
+        - {name: re_replace, args: ["(?i)\\bsub(?:title)?s?\\b.*$", ""]}
+        - {name: re_replace, args: ["(?i)^.*\\bUkr\\w*\\b.*$", "Ukrainian"]}
+        - {name: re_replace, args: ["(?i)^(?!Ukrainian$).*?\\b(?:\\d+\\s*x|x\\s*[1-9])?\\s*(Ukrainian|Ukr|Eng|Jap|Jpn|Rus|Ger|Deu|Fre|Fra|Fr|Ita|Spa|Esp|Pol|Kor|Cze|Che|Chi|Chn|Dan|Swe|Tur|Turk|Hin|Por|Mul|Multi|Bel|Rum|Rom|Ice|Isl|Fin|Heb|Gre|Ell|Nor|Hun|Dut|Nld|Tha|Vie|Slo|Bul|Cro|Srp|Geo|Arm|Ara|Est|Lit|Lav)\\b.*$", "$1"]}
+        - {name: re_replace, args: ["(?i)^Ukr$", "Ukrainian"]}
+        - {name: re_replace, args: ["(?i)^Eng$", "English"]}
+        - {name: re_replace, args: ["(?i)^Jap$", "Japanese"]}
+        - {name: re_replace, args: ["(?i)^Jpn$", "Japanese"]}
+        - {name: re_replace, args: ["(?i)^Rus$", "Russian"]}
+        - {name: re_replace, args: ["(?i)^Ger$", "German"]}
+        - {name: re_replace, args: ["(?i)^Deu$", "German"]}
+        - {name: re_replace, args: ["(?i)^Fre$", "French"]}
+        - {name: re_replace, args: ["(?i)^Fra$", "French"]}
+        - {name: re_replace, args: ["(?i)^Fr$", "French"]}
+        - {name: re_replace, args: ["(?i)^Ita$", "Italian"]}
+        - {name: re_replace, args: ["(?i)^Spa$", "Spanish"]}
+        - {name: re_replace, args: ["(?i)^Esp$", "Spanish"]}
+        - {name: re_replace, args: ["(?i)^Pol$", "Polish"]}
+        - {name: re_replace, args: ["(?i)^Kor$", "Korean"]}
+        - {name: re_replace, args: ["(?i)^Cze$", "Czech"]}
+        - {name: re_replace, args: ["(?i)^Che$", "Czech"]}
+        - {name: re_replace, args: ["(?i)^Chi$", "Chinese"]}
+        - {name: re_replace, args: ["(?i)^Chn$", "Chinese"]}
+        - {name: re_replace, args: ["(?i)^Dan$", "Danish"]}
+        - {name: re_replace, args: ["(?i)^Swe$", "Swedish"]}
+        - {name: re_replace, args: ["(?i)^Tur$", "Turkish"]}
+        - {name: re_replace, args: ["(?i)^Turk$", "Turkish"]}
+        - {name: re_replace, args: ["(?i)^Hin$", "Hindi"]}
+        - {name: re_replace, args: ["(?i)^Por$", "Portuguese"]}
+        - {name: re_replace, args: ["(?i)^Mul$", "MULTi"]}
+        - {name: re_replace, args: ["(?i)^Multi$", "MULTi"]}
+        - {name: re_replace, args: ["(?i)^Bel$", "Belarusian"]}
+        - {name: re_replace, args: ["(?i)^Rum$", "Romanian"]}
+        - {name: re_replace, args: ["(?i)^Rom$", "Romanian"]}
+        - {name: re_replace, args: ["(?i)^Ice$", "Icelandic"]}
+        - {name: re_replace, args: ["(?i)^Isl$", "Icelandic"]}
+        - {name: re_replace, args: ["(?i)^Fin$", "Finnish"]}
+        - {name: re_replace, args: ["(?i)^Heb$", "Hebrew"]}
+        - {name: re_replace, args: ["(?i)^Gre$", "Greek"]}
+        - {name: re_replace, args: ["(?i)^Ell$", "Greek"]}
+        - {name: re_replace, args: ["(?i)^Nor$", "Norwegian"]}
+        - {name: re_replace, args: ["(?i)^Hun$", "Hungarian"]}
+        - {name: re_replace, args: ["(?i)^Dut$", "Dutch"]}
+        - {name: re_replace, args: ["(?i)^Nld$", "Dutch"]}
+        - {name: re_replace, args: ["(?i)^Tha$", "Thai"]}
+        - {name: re_replace, args: ["(?i)^Vie$", "Vietnamese"]}
+        - {name: re_replace, args: ["(?i)^Slo$", "Slovak"]}
+        - {name: re_replace, args: ["(?i)^Bul$", "Bulgarian"]}
+        - {name: re_replace, args: ["(?i)^Cro$", "Croatian"]}
+        - {name: re_replace, args: ["(?i)^Srp$", "Serbian"]}
+        - {name: re_replace, args: ["(?i)^Geo$", "Georgian"]}
+        - {name: re_replace, args: ["(?i)^Arm$", "Armenian"]}
+        - {name: re_replace, args: ["(?i)^Ara$", "Arabic"]}
+        - {name: re_replace, args: ["(?i)^Est$", "Estonian"]}
+        - {name: re_replace, args: ["(?i)^Lit$", "Lithuanian"]}
+        - {name: re_replace, args: ["(?i)^Lav$", "Latvian"]}
+        - {name: re_replace, args: ["(?i)^(?!Arabic$)(?!Armenian$)(?!Belarusian$)(?!Bulgarian$)(?!Chinese$)(?!Croatian$)(?!Czech$)(?!Danish$)(?!Dutch$)(?!English$)(?!Estonian$)(?!Finnish$)(?!French$)(?!Georgian$)(?!German$)(?!Greek$)(?!Hebrew$)(?!Hindi$)(?!Hungarian$)(?!Icelandic$)(?!Italian$)(?!Japanese$)(?!Korean$)(?!Latvian$)(?!Lithuanian$)(?!MULTi$)(?!Norwegian$)(?!Polish$)(?!Portuguese$)(?!Romanian$)(?!Russian$)(?!Serbian$)(?!Slovak$)(?!Spanish$)(?!Swedish$)(?!Thai$)(?!Turkish$)(?!Ukrainian$)(?!Vietnamese$).*$", ""]}
+    lang:
+      text: "{{ if .Result._subsonly }}{{ .Result._lang_subs }}{{ else }}{{ .Result._lang_other }}{{ end }}"
+    # title_raw = non-video pass-through (move leading tags to end), + group.
+    _rawbase:
+      selector: td.topictitle a
+      filters:
+        - {name: re_replace, args: ["\\p{Cf}", ""]}
+        - {name: re_replace, args: ["[\\(\\[]\\s*\\d{1,2}[.\\-/]\\d{1,2}[.\\-/]((?:19|20)\\d{2})\\s*[\\)\\]]", "($1)"]}
+        - {name: re_replace, args: ["[\\(\\[]\\s*((?:19|20)\\d{2})[.\\-/]\\d{1,2}[.\\-/]\\d{1,2}\\s*[\\)\\]]", "($1)"]}
+        - {name: re_replace, args: ["^\\s*(\\([^()]*\\))\\s*(.+)$", "$2 $1"]}
+        - {name: re_replace, args: ["^\\s*(\\[[^\\[\\]]*\\])\\s*(.+)$", "$2 $1"]}
+        - {name: re_replace, args: ["\\(\\s*/\\s*", "("]}
+        - {name: re_replace, args: ["\\s*/\\s*\\)", ")"]}
+        - {name: re_replace, args: ["[\\[\\(]\\s*[\\)\\]]", ""]}
+        - {name: re_replace, args: ["\\s{2,}", " "]}
+        - name: trim
+    title_raw:
+      text: "{{ .Result._rawbase }}{{ if .Result._group }}-{{ .Result._group }}{{ else }}{{ end }}"
+    # title_video = name [SE] (year) quality extras language -group, assembled from the cross-fields.
+    # Quality comes from _qualpick (NormalizeQuality), the group from _group (AppendReleaseGroup).
+    title_video:
+      text: "{{ .Result._name }}{{ if .Result._se }} {{ .Result._se }}{{ else }}{{ end }}{{ if .Result._year }} ({{ .Result._year }}){{ else }}{{ end }}{{ if .Result._qualpick }} {{ .Result._qualpick }}{{ else }}{{ end }}{{ if .Result._extras }} {{ .Result._extras }}{{ else }}{{ end }}{{ if .Result.lang }} {{ .Result.lang }}{{ else }}{{ end }}{{ if .Result._group }}-{{ .Result._group }}{{ else }}{{ end }}"
+      filters:
+        - {name: re_replace, args: ["\\s{2,}", " "]}
+    # final title: per-category gate — video forums use the rebuild (when StripCyrillicLetters is on),
+    # everything else (and ALL forums when the strip toggle is off) passes through honestly.
+    title:
+      text: "{{ if .Result._dorebuild }}{{ .Result.title_video }}{{ else }}{{ .Result.title_raw }}{{ end }}"
+    details:
+      selector: td.topictitle a
+      attribute: href
+    download:
+      selector: td:nth-child(6) a
+      attribute: href
+    size:
+      selector: td:nth-child(7)
+    seeders:
+      selector: td.seedmed
+    leechers:
+      selector: td.leechmed
+    date:
+      selector: td:nth-child(13)
+      filters:
+        - name: dateparse
+          args: "yyyy-MM-dd"
+    downloadvolumefactor:
+      case:
+        img[src="images/gold.gif"]: 0
+        img[src="images/authors.gif"]: 0
+        img[src="images/silver.gif"]: 0.5
+        img[src="images/bronze.gif"]: 0.75
+        "*": 1
+    uploadvolumefactor:
+      text: 1
+# Alternative Cardigann (YAML) indexer for Toloka.to — TorrentPier engine. Per-category gate via cross-field _isvideo.

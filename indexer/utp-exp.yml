@@ -30,34 +30,69 @@ settings:
     type: checkbox
     label: Search freeleech only
     default: false
+
   - name: single_file_release_use_filename
     type: checkbox
-    label: Use filename as title for single file releases
+    label: Use filename as title for single-file releases
     default: false
+  - name: info_single_file_release_use_filename
+    type: info
+    label: Use filename as title for single-file releases
+    default: "<b>Not recommended.</b> For releases that contain a single file, use that file's name as the title instead of the torrent name. Most filenames on the site do not follow a strict naming convention, whereas the release (torrent) name usually does — so enabling this often produces worse titles for Sonarr/Radarr to parse. Leave off unless you know the filenames are well-formed."
+
   - name: add_ukrainian_to_title
     type: checkbox
-    label: Add UKR after the resolution to improve language detection by Sonarr and Radarr.
+    label: Add UKR tag after the resolution
     default: false
+  - name: info_add_ukrainian_to_title
+    type: info
+    label: Add UKR tag after the resolution
+    default: "Inserts a <b>UKR</b> tag right after the resolution (e.g. <i>1080p UKR</i>) so Sonarr and Radarr detect Ukrainian as a release language."
+
   - name: use_mediainfo_audio_languages
     type: checkbox
-    label: Add audio track languages parsed from mediainfo to titles to improve language detection by Sonarr and Radarr
+    label: Add audio languages from MediaInfo to titles
     default: true
+  - name: info_use_mediainfo_audio_languages
+    type: info
+    label: Add audio languages from MediaInfo to titles
+    default: "Parses each audio track's language from the torrent's MediaInfo and appends it after the resolution (e.g. <i>1080p [Ukrainian+English]</i>) to improve language detection by Sonarr and Radarr."
+
   - name: use_mediainfo_subtitle_languages
     type: checkbox
-    label: "Add subtitle track languages parsed from mediainfo to titles, tagged as Subs (eg [Subs English]). WARNING - this requires custom formats in Sonarr/Radarr that recognise the Subs tag; without them the subtitle languages are read as audio/release languages and cause false positive language detection."
+    label: Add subtitle languages from MediaInfo to titles
     default: true
+  - name: info_use_mediainfo_subtitle_languages
+    type: info
+    label: Add subtitle languages from MediaInfo to titles
+    default: "Parses each subtitle track's language from MediaInfo and appends it tagged as <b>Subs</b> (e.g. <i>[Subs English]</i>). <b>WARNING:</b> this requires custom formats in Sonarr/Radarr that recognise the Subs tag. Without them the subtitle languages are read as audio/release languages and cause false-positive language detection."
+
   - name: add_releasegroup_by_uploader
     type: checkbox
-    label: Add uploader name to all titles when no release group is present to improve custom format detection by Sonarr and Radarr
+    label: Use uploader as release group when none present
     default: true
+  - name: info_add_releasegroup_by_uploader
+    type: info
+    label: Use uploader as release group when none present
+    default: "When a release has no release group, appends the uploader's name as the group (e.g. <i>Title 1080p-Uploader</i>) to improve custom-format and release-group detection by Sonarr and Radarr."
+
   - name: fix_tv_year
     type: checkbox
-    label: Replace TV year with the year of the first season
+    label: Replace TV year with first-season year
     default: true
+  - name: info_fix_tv_year
+    type: info
+    label: Replace TV year with first-season year
+    default: "For TV releases, replaces a year adjacent to the season tag with the year of the show's first season (e.g. <i>S01 2021</i> → <i>2019 S01</i>). Years that are part of the show's name (e.g. <i>1923</i>) are left untouched."
+
   - name: normalize_bluray_source_tags
     type: checkbox
-    label: Rename BDRemux/BDRip source tags to BluRay REMUX/BluRay to improve source detection by Sonarr and Radarr
+    label: Normalize Blu-ray source tags
     default: true
+  - name: info_normalize_bluray_source_tags
+    type: info
+    label: Normalize Blu-ray source tags
+    default: "Renames <b>BDRemux</b> → <i>BluRay REMUX</i> and <b>BDRip</b> → <i>BluRay</i> so Sonarr and Radarr detect the source correctly."
   - name: sort
     type: select
     label: Sort requested from site
