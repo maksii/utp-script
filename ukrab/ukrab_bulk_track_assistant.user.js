@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Ukrab.work Bulk Track Assistant
 // @namespace    https://ukrab.work/
-// @version      0.4.5
-// @description  Load unlinked tracks, parse filenames, match TMDB, and link tracks in bulk with queued workflow.
+// @version      0.5.3
+// @description  Load unlinked tracks, parse filenames, optionally enrich from folder-tree JSON, match TMDB, and link tracks in bulk.
 // @match        https://ukrab.work/*
 // @run-at       document-start
 // @grant        unsafeWindow
@@ -26,13 +26,15 @@
 
   const PATTERN_FRAGMENTS = {
     seasonLabel: String.raw`^(?<title>.+?)\s*\(\s*(?:Сезон|Season)\s*(?<season>\d{1,3})\s*\)\s*[-–—]\s*(?<episode>\d{1,5})(?=\D|$)`,
-    sxxExx: String.raw`^(?<title>.+?)[\s._-]+S(?<season>\d{1,3})(?:EP|E)(?<episode>\d{1,5})(?=\D|$)`,
-    sxxexxLower: String.raw`^(?<title>.+?)[\s._-]+s(?<season>\d{1,3})e(?<episode>\d{1,5})(?=\D|$)`,
+    sxxExx: String.raw`^(?<title>.+?)[\s._\-–—]+S(?<season>\d{1,3})(?:P\d{1,3})?(?:EP|E)(?<episode>\d{1,5})(?=\D|$)`,
+    sxxexxLower: String.raw`^(?<title>.+?)[\s._\-–—]+s(?<season>\d{1,3})(?:p\d{1,3})?e(?<episode>\d{1,5})(?=\D|$)`,
     sSeasonDashEp: String.raw`^(?<title>.+?)\s+s(?<season>\d{1,3})\s*[-–—]\s*(?<episode>\d{1,5})(?=\D|$)`,
     titleSeasonEpDash: String.raw`^(?<title>.+?)\s*[-–—]\s*(?<season>\d{1,3})\s*[-–—]\s*(?<episode>\d{1,5})(?=\D|$)`,
+    // Title 3 - 01 / Title 4 - 22 (season before dash-episode)
+    titleSeasonDashEp: String.raw`^(?<title>.+?)\s+(?<season>\d{1,3})\s*[-–—]\s*(?<episode>\d{1,5})(?=\s|_track|\[|\(|\.|$)`,
     titleSpaceSeasonEp: String.raw`^(?<title>.+?)\s+(?<season>\d{1,3})\s+(?<episode>\d{1,5})(?=_track)`,
     titleSpaceEpTrack: String.raw`^(?<title>.+?)\s+(?<episode>\d{1,5})(?=_track)`,
-    dashEp: String.raw`^(?<title>.+?)\s*[-–—]\s*(?<episode>\d{1,5})(?=\s|_track|\.|$)`,
+    dashEp: String.raw`^(?<title>.+?)\s*[-–—]\s*(?<episode>\d{1,5})(?=\s|_track|\[|\(|\.|$)`,
     aniuaBracketEp: String.raw`^(?:\[[^\]]+\]_)?(?<title>.+?)_\[(?<episode>\d{1,5})\]_`,
     specVypusk: String.raw`^(?<title>.+?)\s*[-–—]\s*(?:спецвипуск|спец\.?\s*вип\.?|special)\s*(?<episode>\d{1,5})`,
     bracketEpBeforeParen: String.raw`^(?<title>.+?)\s*\[(?<episode>\d{1,5})\]\s*\(`,
@@ -42,12 +44,25 @@
     eEpisode: String.raw`^(?<title>.+?)\s+E(?<episode>\d{1,5})(?=\s|\[|_|-|$)`,
     dashOvaEp: String.raw`^(?<title>.+?)\s*[-–—]\s*OVA\s*(?<episode>\d{1,5})?(?=\s|\[|_|\(|\.|$)`,
     dashEpBeforeParen: String.raw`^(?<title>.+?)\s*[-–—]\s*.+?\s+(?<episode>\d{1,5})\s*\(`,
+    // Episode-only filenames (title lives in parent folder — use folder-tree JSON to fill title)
+    epOnlySxxExx: String.raw`^[Ss](?<season>\d{1,3})(?:P\d{1,3})?[Ee](?<episode>\d{1,5})(?:[-–—][Ee]?(?<episode2>\d{1,5}))?(?=\D|$)`,
+    epOnlyParenNxN: String.raw`^\((?<season>\d{1,2})[xX](?<episode>\d{1,3})\)`,
+    epOnlyNxN: String.raw`^(?<season>\d{1,2})[xX](?<episode>\d{1,3})(?=\D|$)`,
+    // Absolute episode index: 067.Title.DVDRip (DuckTales 1989, etc.)
+    leadingAbsEpisode: String.raw`^(?<episode>\d{2,3})\.(?<title>.+?)(?:\.(?:DVDRip|WEB-?DL(?:Rip)?|WEBRip|BDRip|Blu-?Ray|HDTV|TVRip|SATRip).*)?(?:_track\d+)?(?:\.[^.]+)?$`,
     bracketNumPrefix: String.raw`^\[\d{1,3}\]\s*(?<title>.+?)(?:_track\d+)?(?:\.[^.]+)?$`,
     movieYear: String.raw`^(?<title>.+?)\s*\(\d{4}\).*?(?:_track\d+)?(?:\.[^.]+)?$`,
-    movieNoYear: String.raw`^(?<title>.+?)(?:\s+(?:WEBRip|BDRip|BluRay|HDTV|DVDRip|WEB-DL)).*?(?:_track\d+)?(?:\.[^.]+)?$`,
+    movieNoYear: String.raw`^(?<title>.+?)(?:\s+|\s*\()(?:WEBRip|WEB-?DL(?:Rip)?|WEBDL|BDRip|BluRay|HDTV|DVDRip|TVRip|SATRip|IPTVRip).*?(?:_track\d+)?(?:\.[^.]+)?$`,
     numberedListPrefix: String.raw`^\d{1,2}\.?\s*(?<title>[A-Za-zА-Яа-яІіЇїЄєҐґ].+?)(?:_track\d+)?(?:\.[^.]+)?$`,
     movie: String.raw`^(?<title>.+?)(?:_track\d+)?(?:\.[^.]+)?$`,
   };
+
+  const EP_ONLY_PATTERNS = [
+    PATTERN_FRAGMENTS.epOnlySxxExx,
+    PATTERN_FRAGMENTS.epOnlyParenNxN,
+    PATTERN_FRAGMENTS.epOnlyNxN,
+    PATTERN_FRAGMENTS.leadingAbsEpisode,
+  ];
 
   const TV_PATTERNS = [
     PATTERN_FRAGMENTS.seasonLabel,
@@ -55,9 +70,10 @@
     PATTERN_FRAGMENTS.sxxexxLower,
     PATTERN_FRAGMENTS.sSeasonDashEp,
     PATTERN_FRAGMENTS.titleSeasonEpDash,
+    PATTERN_FRAGMENTS.titleSeasonDashEp,
     PATTERN_FRAGMENTS.titleSpaceSeasonEp,
-    PATTERN_FRAGMENTS.titleSpaceEpTrack,
     PATTERN_FRAGMENTS.dashEp,
+    PATTERN_FRAGMENTS.titleSpaceEpTrack,
     PATTERN_FRAGMENTS.aniuaBracketEp,
     PATTERN_FRAGMENTS.specVypusk,
     PATTERN_FRAGMENTS.bracketEpBeforeParen,
@@ -67,6 +83,7 @@
     PATTERN_FRAGMENTS.eEpisode,
     PATTERN_FRAGMENTS.dashOvaEp,
     PATTERN_FRAGMENTS.dashEpBeforeParen,
+    ...EP_ONLY_PATTERNS,
   ];
 
   const AUTO_PATTERNS = [
@@ -76,6 +93,30 @@
     PATTERN_FRAGMENTS.movieNoYear,
     PATTERN_FRAGMENTS.numberedListPrefix,
     PATTERN_FRAGMENTS.movie,
+  ];
+
+  const TREE_NOISE_DIR_RE =
+    /^(?:toloka|qbittorrent|downloads|films?|movies?|series|serials?|tv|anime|torrents?|video|media)$/i;
+  const TREE_SEASON_DIR_RE =
+    /^(?:Season|Сезон|Saison|Temporada)\s*0*(\d{1,3})\b|^S0*(\d{1,3})$|^\(?\s*0*(\d{1,3})\s*(?:сезон|season)\s*\)?$|^.*?\(\s*0*(\d{1,3})\s*(?:сезон|season)\s*\)$/i;
+  const TREE_SEASON_EMBED_RE = /^(?<title>.+?)[.\s]+(?:Сезон|Season)\s*(?<season>\d{1,3})\b/i;
+  const TREE_SXX_IN_FOLDER_RE =
+    /^(?<title>.+?)(?:[.\s_-]+)S(?<season>\d{1,3})(?![Ee])(?:[.\s_-]+(?<year>\d{4}(?:\s*[-–—]\s*\d{4})?))?(?:[.\s_-]|$)/i;
+  const TREE_SEASON_RANGE_PAREN_RE = /\s*\(\s*(?:Season|Сезон)\s*\d{1,3}(?:\s*[,;]\s*Part\s*\d{1,3}|\s*[-–—]\s*\d{1,3})?\s*\)\s*/i;
+  const TREE_SEASON_PAREN_RE = /\s*\(\s*(?:Season|Сезон)\s*(?<season>\d{1,3})[^)]*\)\s*/i;
+  const TREE_YEAR_RANGE_PAREN_RE = /\s*\(\d{4}(?:\s*[-–—]\s*\d{4})?\)\s*/;
+  const TREE_RELEASE_DASH_RE =
+    /\s*[-–—]\s*(?:WEB-?DL|WEBDL|WEBRip|BDRip|BDRemux|Blu-?Ray|HDTV|DVDRip|DVD|SATRip|IPTV|TVRip|720p|1080p|2160p).*$/i;
+  // Short tokens (UA/Sub/NF) must use word boundaries — bare "UA" otherwise matches inside "SquarePants".
+  const TREE_QUALITY_TAIL_RE =
+    /\s*(?:(?:\[[^\]]+\])|\([^)]*(?:WEB|BDRip|Blu|HDTV|DVD|SAT|IPTV|Rip|1080|720|Ukr|UKR|Hurtom|Sub)[^)]*\)|\b(?:WEB-?DL(?:Rip)?|WEBDL|WEBRip|BDRip|BDRemux|Blu-?Ray|HDTV|DVDRip|SATRip|IPTV(?:Rip)?|TVRip(?:-AVC)?|AMZN|NF|x264|x265|HEVC|AAC|DTS|MP2|1080p|1080i|720p|2160p|480p|UKR|Ukr|UA|ENG|Multi|AI\s*Upscale)\b|\b\d+x(?:UKR|UA|Ukr)?\b)+\s*$/i;
+  const TRACK_SUFFIX_RE = /_track\d+(?:-[a-f0-9]+)?$/i;
+  const TREE_FILE_CODE_PATTERNS = [
+    /\[(?<season>\d{1,2})[xX](?<episode>\d{1,3})\]/,
+    /\((?<season>\d{1,2})[xX](?<episode>\d{1,3})\)/,
+    /(?:^|[\s._\-–—])[Ss](?<season>\d{1,3})(?:P\d{1,3})?[Ee](?<episode>\d{1,5})(?=\D|$)/,
+    /(?:^|[\s._\-–—\[])(?<season>\d{1,2})[xX](?<episode>\d{1,3})(?=\D|$)/,
+    /^(?<episode>\d{2,3})\./,
   ];
 
   const PRESETS = {
@@ -119,6 +160,10 @@
       label: 'Title NN (release) / Title NN [release]',
       patterns: [PATTERN_FRAGMENTS.titleSpaceEpParen, PATTERN_FRAGMENTS.titleSpaceEpBracket],
     },
+    'ep-only': {
+      label: 'Episode-only: SxxExx / NxN / (NxN) (needs folder tree for title)',
+      patterns: EP_ONLY_PATTERNS,
+    },
     movie: {
       label: 'Movie: use filename as title',
       patterns: [PATTERN_FRAGMENTS.movie],
@@ -146,6 +191,8 @@
     groupTrackIds: new Map(),
     groupStatsCache: new Map(),
     manualOverrides: new Map(),
+    folderTree: null,
+    groupFromTree: new Set(),
   };
 
   const ui = {};
@@ -446,6 +493,25 @@
         color: #6c757d;
         font-family: ui-monospace, monospace;
       }
+      #${PANEL_ID} .uba-tree-tag {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 0 5px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: 600;
+        background: #d1e7dd;
+        color: #0f5132;
+        vertical-align: middle;
+      }
+      #${PANEL_ID} .uba-group-item[data-tree="true"] .uba-group-label::after {
+        content: " · tree";
+        color: #0f5132;
+        font-size: 10px;
+        font-weight: 600;
+      }
+      #${PANEL_ID} .uba-tree-status[data-kind="ok"] { color: #0f5132; }
+      #${PANEL_ID} .uba-tree-status[data-kind="error"] { color: #842029; }
       #${PANEL_ID} .uba-tmdb-selected {
         display: flex;
         gap: 12px;
@@ -558,7 +624,7 @@
     panel.dataset.collapsed = 'false';
     panel.innerHTML = `
       <div class="uba-header">
-        <div class="uba-title">Ukrab Bulk Track Assistant v0.4.4</div>
+        <div class="uba-title">Ukrab Bulk Track Assistant v0.5.3</div>
         <div class="uba-header-actions">
           <button type="button" data-action="collapse" title="Collapse">−</button>
           <button type="button" data-action="close" title="Hide">×</button>
@@ -582,6 +648,28 @@
           <div class="uba-notice" data-role="data-status">No API data loaded.</div>
         </div>
 
+        <div class="uba-section">
+          <div class="uba-grid">
+            <div class="uba-col-12">
+              <label>Optional folder tree JSON</label>
+              <div class="uba-help" style="margin-bottom:6px">
+                From <code>export_folder_tree.py</code>. When loaded, folder-tree metadata has priority over
+                filename parsing for title/season/episode (e.g. <code>[13x03] Baking Bad…</code> →
+                <strong>Family Guy</strong> S13E03 from the path). Still optional — without a tree, filename
+                patterns are used alone.
+              </div>
+              <div class="uba-buttons">
+                <button class="uba-btn" type="button" data-action="load-tree">Load folder tree JSON…</button>
+                <button class="uba-btn" type="button" data-action="clear-tree" data-role="clear-tree" disabled>Clear tree</button>
+                <input id="uba-tree-file" type="file" accept=".json,application/json" hidden>
+              </div>
+            </div>
+            <div class="uba-col-12">
+              <div class="uba-notice uba-tree-status" data-role="tree-status">No folder tree loaded.</div>
+            </div>
+          </div>
+        </div>
+
         <div class="uba-section uba-grid">
           <div class="uba-col-9">
             <label for="uba-preset">Filename pattern</label>
@@ -596,6 +684,7 @@
               <option value="aniua-bracket">AniUA: Title_[Episode]_...</option>
               <option value="spec-vypusk">Title - спецвипуск NN ...</option>
               <option value="title-space-ep">Title NN (release) / Title NN [release]</option>
+              <option value="ep-only">Episode-only: SxxExx / NxN / (NxN) + folder tree</option>
               <option value="movie">Movie: use filename as title</option>
               <option value="custom">Custom regex</option>
             </select>
@@ -626,8 +715,8 @@
               </div>
             </div>
             <div class="uba-col-6">
-              <label for="uba-filter">Filename / title filter</label>
-              <input id="uba-filter" type="text" placeholder="Example: Arabasta">
+              <label for="uba-filter">Filename / title / tree-path filter</label>
+              <input id="uba-filter" type="text" placeholder="Example: Злюки бобри · S02E11 · Oggy">
             </div>
             <div class="uba-col-3">
               <label for="uba-status-filter">Show tracks</label>
@@ -798,6 +887,9 @@
       routeStatus: panel.querySelector('[data-role="route-status"]'),
       authStatus: panel.querySelector('[data-role="auth-status"]'),
       dataStatus: panel.querySelector('[data-role="data-status"]'),
+      treeStatus: panel.querySelector('[data-role="tree-status"]'),
+      treeFile: panel.querySelector('#uba-tree-file'),
+      clearTree: panel.querySelector('[data-role="clear-tree"]'),
       preset: panel.querySelector('#uba-preset'),
       pattern: panel.querySelector('#uba-pattern'),
       episodeOffset: panel.querySelector('#uba-episode-offset'),
@@ -897,6 +989,11 @@
       renderTrackTable();
       renderGroupList();
     });
+    ui.treeFile?.addEventListener('change', () => {
+      const file = ui.treeFile.files?.[0];
+      if (file) loadFolderTreeFile(file);
+      ui.treeFile.value = '';
+    });
     ui.tmdbQuery.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -914,6 +1011,7 @@
     updateMediaTypeControls();
     renderTrackTable();
     updateQueueStatus();
+    updateTreeStatus();
 
     if (isTargetRoute() && !state.loaded && !state.loading) {
       setTimeout(loadUnlinkedTracks, 500);
@@ -974,11 +1072,13 @@
       ui.panel.remove();
       return;
     }
-    if (state.running && ['load-api', 'reparse'].includes(action)) return;
+    if (state.running && ['load-api', 'reparse', 'load-tree', 'clear-tree'].includes(action)) return;
 
     const actions = {
       'load-api': loadUnlinkedTracks,
       reparse: reparseTracks,
+      'load-tree': () => ui.treeFile?.click(),
+      'clear-tree': clearFolderTree,
       'prev-group': () => navigateGroup(-1),
       'next-group': () => navigateGroup(1),
       'select-group-pending': selectGroupPending,
@@ -1026,16 +1126,39 @@
   }
 
   function normaliseParsedTitle(value) {
-    return String(value ?? '')
+    let title = String(value ?? '')
       .trim()
       .replace(/[._]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+
+    let previous = null;
+    while (previous !== title) {
+      previous = title;
+      title = title
+        .replace(/\s*\[[^\]]*\]\s*$/g, '')
+        .replace(/\s+(?:\d+x)?(?:UKR|UA|Ukr|ENG|RUS|DVO|SUB)(?:\s+(?:DVO|SUB|UKR|UA|Ukr|ENG|RUS))*\s*$/i, '')
+        .replace(
+          /\s*\([^)]*(?:WEB-?DL(?:Rip)?|WEBDL|BDRip|BluRay|HDTV|DVDRip|TVRip|SATRip|IPTV|x264|x265|HEVC|AAC|DTS|1080p|720p|2160p|480p|2k|4k|Ukr|UKR|UA|DVO|SUB|Multi)[^)]*\)\s*$/i,
+          '',
+        )
+        .replace(
+          /\s+(?:WEB-?DL(?:Rip)?|WEBDL|BDRip|BluRay|HDTV|DVDRip|TVRip|SATRip(?:-AVC)?|IPTVRip(?:-AVC)?|x264|x265|HEVC|AAC|DTS|\d{3,4}p|2k|4k)\b.*$/i,
+          '',
+        )
+        .replace(/\s+by\s+\S+\s*$/i, '')
+        .replace(/\s*\([^)]*$/g, '')
+        .replace(/\s*[-–—.:|,;]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    return title;
   }
 
   function stripBracketPrefix(value) {
     return String(value ?? '')
-      .replace(/^\[[^\]]+\]\s*/, '')
+      .replace(/^(\[[^\]]+\]\s*)+/g, '')
       .trim();
   }
 
@@ -1044,9 +1167,10 @@
   }
 
   function getDisplayTitle(rawTitle) {
-    const title = normaliseParsedTitle(rawTitle);
+    let title = String(rawTitle ?? '').trim();
     if (!title) return '';
-    return shouldStripBracket() ? stripBracketPrefix(title) : title;
+    if (shouldStripBracket()) title = stripBracketPrefix(title);
+    return normaliseParsedTitle(title);
   }
 
   function getTrackGroupKey(track) {
@@ -1375,14 +1499,369 @@
     refreshTitleGroupSelect();
     renderGroupList();
     renderTrackTable();
+    updateTreeStatus();
     updateDataStatus(
       `Loaded ${state.tracks.length.toLocaleString()} unique track(s) from ${normalised.groupCount.toLocaleString()} group(s) via ${sourceLabel}` +
         (normalised.declaredTrackCount && normalised.declaredTrackCount !== state.tracks.length
           ? `; API-declared count ${normalised.declaredTrackCount.toLocaleString()}.`
-          : '.'),
+          : '.') +
+        (state.folderTree
+          ? ` Tree-enriched ${countTreeEnriched().toLocaleString()}.`
+          : ''),
       'ok',
     );
     log(`Loaded ${state.tracks.length.toLocaleString()} track(s) from ${sourceLabel}.`);
+  }
+
+  function fileStem(filename) {
+    const base = String(filename ?? '').split(/[/\\]/).pop() || '';
+    const dot = base.lastIndexOf('.');
+    return dot > 0 ? base.slice(0, dot) : base;
+  }
+
+  function audioStemFromFilename(filename) {
+    return fileStem(filename).replace(TRACK_SUFFIX_RE, '');
+  }
+
+  function normaliseTreeKey(value) {
+    return String(value ?? '')
+      .toLocaleLowerCase()
+      .replace(/[._]+/g, ' ')
+      .replace(/[^a-z0-9а-яіїєґ]+/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function cleanFolderShowTitle(name) {
+    let title = stripBracketPrefix(String(name ?? '').replace(/\./g, ' '));
+    let season = null;
+
+    const seasonParen = title.match(TREE_SEASON_PAREN_RE);
+    if (seasonParen?.groups?.season) {
+      const parsed = Number.parseInt(seasonParen.groups.season, 10);
+      if (Number.isInteger(parsed)) season = parsed;
+      title = title.replace(TREE_SEASON_PAREN_RE, ' ').trim();
+    } else if (TREE_SEASON_RANGE_PAREN_RE.test(title)) {
+      title = title.replace(TREE_SEASON_RANGE_PAREN_RE, ' ').trim();
+    }
+
+    const embed = title.match(TREE_SEASON_EMBED_RE);
+    if (embed?.groups) {
+      title = String(embed.groups.title || '').trim();
+      const parsed = Number.parseInt(embed.groups.season, 10);
+      if (Number.isInteger(parsed) && season == null) season = parsed;
+    }
+
+    if (season == null) {
+      const sxx = title.match(TREE_SXX_IN_FOLDER_RE);
+      if (sxx?.groups?.title) {
+        title = String(sxx.groups.title || '').trim();
+        const parsed = Number.parseInt(sxx.groups.season, 10);
+        if (Number.isInteger(parsed)) season = parsed;
+      }
+    }
+
+    title = title.replace(TREE_RELEASE_DASH_RE, '').trim();
+
+    let previous = null;
+    while (previous !== title) {
+      previous = title;
+      title = title.replace(TREE_QUALITY_TAIL_RE, '').trim();
+      title = title.replace(/\s*\[[^\]]*\]\s*$/g, '').trim();
+      title = title.replace(/\s*\([^)]*(?:WEB|BDRip|Blu|HDTV|DVD|SAT|IPTV|Rip|1080|720|Ukr|UKR|Hurtom|Sub)[^)]*\)\s*$/i, '').trim();
+      title = title.replace(/\s+by\s+\S+\s*$/i, '').trim();
+      title = title.replace(/\s*\(\d{4}(?:\s*[-–—]\s*\d{4})?\)\s*/g, ' ').trim();
+      title = title.replace(/\s*[-–—.:|,;]+$/g, '').trim();
+      title = title.replace(/\s+/g, ' ').trim();
+    }
+
+    title = normaliseParsedTitle(title);
+    return { title, season };
+  }
+
+  function parseMediaCodesFromName(name) {
+    const value = fileStem(name);
+    for (const pattern of TREE_FILE_CODE_PATTERNS) {
+      const match = value.match(pattern);
+      if (!match?.groups) continue;
+      const seasonRaw = match.groups.season;
+      const episodeRaw = match.groups.episode;
+      const season = seasonRaw == null || seasonRaw === '' ? null : Number.parseInt(seasonRaw, 10);
+      const episode = episodeRaw == null || episodeRaw === '' ? null : Number.parseInt(episodeRaw, 10);
+      if (!Number.isInteger(episode)) continue;
+      return {
+        season: Number.isInteger(season) ? season : null,
+        episode,
+      };
+    }
+    return { season: null, episode: null };
+  }
+
+  function resolveTitleFromPathParts(parts) {
+    const dirs = parts.slice(0, -1).filter((part) => part && !TREE_NOISE_DIR_RE.test(part));
+    let seasonFromDir = null;
+    let title = '';
+
+    for (let index = dirs.length - 1; index >= 0; index -= 1) {
+      const dir = dirs[index];
+      const seasonMatch = dir.trim().match(TREE_SEASON_DIR_RE);
+      if (seasonMatch) {
+        for (const group of seasonMatch.slice(1)) {
+          if (group == null) continue;
+          const parsed = Number.parseInt(group, 10);
+          if (Number.isInteger(parsed)) {
+            seasonFromDir = parsed;
+            break;
+          }
+        }
+        continue;
+      }
+
+      const cleaned = cleanFolderShowTitle(dir);
+      if (cleaned.season != null && seasonFromDir == null) seasonFromDir = cleaned.season;
+      if (cleaned.title) {
+        title = cleaned.title;
+        break;
+      }
+    }
+
+    return { title, season: seasonFromDir };
+  }
+
+  function collectTreeFiles(payload) {
+    if (Array.isArray(payload?.files)) {
+      return payload.files.filter((file) => file && (file.name || file.rel_path));
+    }
+
+    const files = [];
+    function walk(node, parts = []) {
+      if (!node || typeof node !== 'object') return;
+      const name = node.name || parts[parts.length - 1] || '';
+      const nextParts = node.rel_path && node.rel_path !== '.'
+        ? String(node.rel_path).split('/').filter(Boolean)
+        : name
+          ? [...parts, name]
+          : parts;
+
+      if (node.type === 'file' || (!node.children && name)) {
+        files.push({
+          name: name || nextParts[nextParts.length - 1] || '',
+          rel_path: node.rel_path || nextParts.join('/'),
+          parts: nextParts,
+          ext: node.ext || '',
+        });
+        return;
+      }
+
+      for (const child of node.children || []) walk(child, nextParts);
+    }
+
+    if (payload?.tree) walk(payload.tree);
+    return files;
+  }
+
+  function buildFolderTreeIndex(payload) {
+    const byExact = new Map();
+    const byNorm = new Map();
+    const files = collectTreeFiles(payload);
+
+    const push = (map, key, entry) => {
+      if (!key) return;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(entry);
+    };
+
+    for (const file of files) {
+      const name = String(file.name || file.rel_path?.split('/').pop() || '');
+      const parts = Array.isArray(file.parts) && file.parts.length
+        ? file.parts.map(String)
+        : String(file.rel_path || name).split('/').filter(Boolean);
+      const resolved = resolveTitleFromPathParts(parts);
+      const codes = parseMediaCodesFromName(name);
+      const stem = fileStem(name);
+      const entry = {
+        name,
+        relPath: parts.join('/'),
+        title: resolved.title,
+        season: Number.isInteger(resolved.season) ? resolved.season : codes.season,
+        episode: codes.episode,
+      };
+      push(byExact, stem.toLocaleLowerCase(), entry);
+      push(byNorm, normaliseTreeKey(stem), entry);
+    }
+
+    return {
+      root: String(payload?.root || ''),
+      rootName: String(payload?.root_name || ''),
+      fileCount: files.length,
+      byExact,
+      byNorm,
+    };
+  }
+
+  function pickTreeHit(hits) {
+    if (!hits?.length) return null;
+    const titled = hits.filter((hit) => hit.title);
+    const pool = titled.length ? titled : hits;
+    const titles = new Set(pool.map((hit) => hit.title).filter(Boolean));
+    if (titles.size > 1) {
+      // Prefer the most common resolved title among duplicates
+      const counts = new Map();
+      for (const hit of pool) {
+        if (!hit.title) continue;
+        counts.set(hit.title, (counts.get(hit.title) || 0) + 1);
+      }
+      let best = '';
+      let bestCount = 0;
+      for (const [title, count] of counts) {
+        if (count > bestCount) {
+          best = title;
+          bestCount = count;
+        }
+      }
+      return pool.find((hit) => hit.title === best) || null;
+    }
+    return pool[0];
+  }
+
+  function lookupTreeFile(filename) {
+    if (!state.folderTree) return null;
+    const stem = audioStemFromFilename(filename);
+    const exact = state.folderTree.byExact.get(stem.toLocaleLowerCase());
+    const hit = pickTreeHit(exact);
+    if (hit) return hit;
+    return pickTreeHit(state.folderTree.byNorm.get(normaliseTreeKey(stem)));
+  }
+
+  function enrichTrackFromTree(track) {
+    const base = {
+      ...track,
+      titleSource: track.titleSource || 'filename',
+      seasonSource: track.seasonSource || 'filename',
+      episodeSource: track.episodeSource || 'filename',
+      treeMatch: null,
+    };
+
+    if (!state.folderTree) return base;
+
+    const hit = lookupTreeFile(track.filename);
+    if (!hit) return base;
+
+    const next = {
+      ...base,
+      treeMatch: {
+        relPath: hit.relPath,
+        title: hit.title,
+        season: hit.season,
+        episode: hit.episode,
+      },
+    };
+
+    // Tree path is authoritative when a video file match exists.
+    if (hit.title) {
+      next.title = hit.title;
+      next.titleSource = 'tree';
+      next.parseError = '';
+    }
+
+    if (Number.isInteger(hit.season)) {
+      next.season = hit.season;
+      next.seasonSource = 'tree';
+    }
+
+    if (Number.isInteger(hit.episode)) {
+      next.episode = hit.episode;
+      next.episodeSource = 'tree';
+    }
+
+    return next;
+  }
+
+  function applyTreeEnrichment(tracks = state.tracks) {
+    return tracks.map((track) => enrichTrackFromTree({
+      ...track,
+      titleSource: 'filename',
+      seasonSource: 'filename',
+      episodeSource: 'filename',
+      treeMatch: null,
+    }));
+  }
+
+  function countTreeEnriched(tracks = state.tracks) {
+    return tracks.reduce(
+      (total, track) =>
+        total + (track.titleSource === 'tree' || track.seasonSource === 'tree' || track.episodeSource === 'tree' ? 1 : 0),
+      0,
+    );
+  }
+
+  function updateTreeStatus(message = '', kind = '') {
+    if (!ui.treeStatus) return;
+    if (!message) {
+      if (!state.folderTree) {
+        ui.treeStatus.textContent = 'No folder tree loaded.';
+        ui.treeStatus.dataset.kind = '';
+      } else {
+        const enriched = countTreeEnriched();
+        const loaded = state.tracks.length;
+        ui.treeStatus.textContent =
+          `Tree ready: ${state.folderTree.fileCount.toLocaleString()} file(s)` +
+          (state.folderTree.rootName ? ` from “${state.folderTree.rootName}”` : '') +
+          (loaded
+            ? ` · enriched ${enriched.toLocaleString()} / ${loaded.toLocaleString()} loaded track(s).`
+            : '. Load unlinked tracks to apply.');
+        ui.treeStatus.dataset.kind = 'ok';
+      }
+      return;
+    }
+    ui.treeStatus.textContent = message;
+    ui.treeStatus.dataset.kind = kind;
+  }
+
+  function refreshAfterTreeChange() {
+    if (state.tracks.length) {
+      state.tracks = applyTreeEnrichment(
+        state.tracks.map((track) => ({
+          id: track.id,
+          filename: track.filename,
+          displayName: track.displayName,
+          type: track.type,
+          language: track.language,
+          createdAt: track.createdAt,
+          apiGroupKey: track.apiGroupKey,
+          ...parseFilename(track.filename),
+        })),
+      );
+      rebuildTitleGroups();
+      refreshTitleGroupSelect();
+      renderGroupList();
+      renderTrackTable();
+    }
+    if (ui.clearTree) ui.clearTree.disabled = !state.folderTree;
+    updateTreeStatus();
+  }
+
+  function clearFolderTree() {
+    state.folderTree = null;
+    refreshAfterTreeChange();
+    log('Cleared folder tree JSON.');
+  }
+
+  async function loadFolderTreeFile(file) {
+    updateTreeStatus(`Reading ${file.name}…`);
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      const index = buildFolderTreeIndex(payload);
+      if (!index.fileCount) throw new Error('JSON has no files (expected export_folder_tree.py output).');
+      state.folderTree = index;
+      refreshAfterTreeChange();
+      log(`Loaded folder tree “${file.name}”: ${index.fileCount.toLocaleString()} file(s), enriched ${countTreeEnriched().toLocaleString()} track(s).`);
+    } catch (error) {
+      updateTreeStatus(`Tree load failed: ${formatError(error)}`, 'error');
+      log(`Tree load failed: ${formatError(error)}`, 'error');
+      alert(`Folder tree JSON failed: ${formatError(error)}`);
+    }
   }
 
   function parseFilename(filename) {
@@ -1402,18 +1881,22 @@
       }
     }
 
-    if (!match) return { title: '', season: null, episode: null, parseError: 'No match', patternIndex: -1, bracketTag };
+    if (!match) {
+      return { title: '', season: null, episode: null, parseError: 'No match', patternIndex: -1, bracketTag };
+    }
 
     const groups = match.groups || {};
     const title = normaliseParsedTitle(groups.title);
     const season = groups.season == null || groups.season === '' ? null : Number.parseInt(groups.season, 10);
     const episode = groups.episode == null || groups.episode === '' ? null : Number.parseInt(groups.episode, 10);
+    const hasEpisode = Number.isInteger(episode);
+    const hasSeason = Number.isInteger(season);
 
     return {
       title,
-      season: Number.isInteger(season) ? season : null,
-      episode: Number.isInteger(episode) ? episode : null,
-      parseError: title ? '' : 'Missing title group',
+      season: hasSeason ? season : null,
+      episode: hasEpisode ? episode : null,
+      parseError: title ? '' : hasSeason || hasEpisode ? 'No title in filename' : 'Missing title group',
       patternIndex,
       bracketTag,
     };
@@ -1475,8 +1958,10 @@
       }
     }
 
+    const tracks = applyTreeEnrichment([...found.values()]);
+
     return {
-      tracks: [...found.values()],
+      tracks,
       groupCount: groups.length,
       declaredTrackCount: groups.reduce((total, group) => total + (Number(group.declaredTrackCount) || 0), 0),
     };
@@ -1522,12 +2007,27 @@
   function reparseTracks() {
     try {
       compilePatterns();
-      state.tracks = state.tracks.map((track) => ({ ...track, ...parseFilename(track.filename) }));
+      state.tracks = applyTreeEnrichment(
+        state.tracks.map((track) => ({
+          id: track.id,
+          filename: track.filename,
+          displayName: track.displayName,
+          type: track.type,
+          language: track.language,
+          createdAt: track.createdAt,
+          apiGroupKey: track.apiGroupKey,
+          ...parseFilename(track.filename),
+        })),
+      );
       rebuildTitleGroups();
       refreshTitleGroupSelect();
       renderGroupList();
       renderTrackTable();
-      log(`Reparsed ${state.tracks.length.toLocaleString()} track(s).`);
+      updateTreeStatus();
+      log(
+        `Reparsed ${state.tracks.length.toLocaleString()} track(s)` +
+          (state.folderTree ? `; tree-enriched ${countTreeEnriched().toLocaleString()}.` : '.'),
+      );
     } catch (error) {
       log(formatError(error), 'error');
       alert(formatError(error));
@@ -1537,11 +2037,13 @@
   function rebuildTitleGroups() {
     const groups = new Map();
     state.groupTrackIds = new Map();
+    state.groupFromTree = new Set();
     for (const track of state.tracks) {
       const key = getTrackGroupKey(track);
       groups.set(key, (groups.get(key) || 0) + 1);
       if (!state.groupTrackIds.has(key)) state.groupTrackIds.set(key, []);
       state.groupTrackIds.get(key).push(track.id);
+      if (track.titleSource === 'tree' && key !== UNPARSED_GROUP) state.groupFromTree.add(key);
     }
     state.groupStatsCache.clear();
     state.titleGroups = new Map(
@@ -1568,9 +2070,10 @@
         const label = key === UNPARSED_GROUP ? 'Unparsed' : key;
         const badge = formatGroupBadge(stats);
         const done = stats.pending === 0 && stats.total > 0;
+        const fromTree = state.groupFromTree?.has(key) || false;
         return `
-          <div class="uba-group-item" data-group-key="${escapeHtml(key)}" data-active="${key === active}" data-done="${done}">
-            <span>${escapeHtml(label)}</span>
+          <div class="uba-group-item" data-group-key="${escapeHtml(key)}" data-active="${key === active}" data-done="${done}" data-tree="${fromTree}">
+            <span class="uba-group-label">${escapeHtml(label)}</span>
             <span class="uba-badge">${badge} / ${count.toLocaleString()}</span>
           </div>
         `;
@@ -1584,10 +2087,11 @@
     const options = ['<option value="">All parsed titles</option>'];
     for (const [title, count] of state.titleGroups) {
       const stats = getGroupStats(title);
+      const treeMark = state.groupFromTree?.has(title) ? ' · tree' : '';
       const label =
         title === UNPARSED_GROUP
           ? `Unparsed (${stats.pending} pending / ${count.toLocaleString()})`
-          : `${title} (${stats.pending} pending / ${count.toLocaleString()})`;
+          : `${title}${treeMark} (${stats.pending} pending / ${count.toLocaleString()})`;
       options.push(`<option value="${escapeHtml(title)}">${escapeHtml(label)}</option>`);
     }
     ui.titleGroup.innerHTML = options.join('');
@@ -1610,7 +2114,13 @@
         if (group !== UNPARSED_GROUP && groupKey !== group) return false;
       }
       const displayTitle = getDisplayTitle(track.title);
-      if (filter && !`${displayTitle}\n${track.title}\n${track.filename}`.toLocaleLowerCase().includes(filter)) return false;
+      const treePath = track.treeMatch?.relPath || '';
+      if (
+        filter &&
+        !`${displayTitle}\n${track.title}\n${track.filename}\n${treePath}`.toLocaleLowerCase().includes(filter)
+      ) {
+        return false;
+      }
       return true;
     });
   }
@@ -1809,11 +2319,18 @@
         const displayTitle = getDisplayTitle(track.title) || `⚠ ${track.parseError || 'Unparsed'}`;
         const statusLabel = getTrackStatusLabel(track.id);
         const patternHint = Number.isInteger(track.patternIndex) && track.patternIndex >= 0 ? `#${track.patternIndex + 1}` : '';
+        const treeHint =
+          track.titleSource === 'tree'
+            ? `<span class="uba-tree-tag" title="${escapeHtml(track.treeMatch?.relPath || 'from folder tree')}">tree</span>`
+            : '';
+        const titleTooltip = track.treeMatch?.relPath
+          ? ` title="${escapeHtml(track.treeMatch.relPath)}"`
+          : '';
         return `
           <tr data-track-id="${track.id}" data-status="${escapeHtml(status?.state || '')}">
             <td><input type="checkbox" data-track-checkbox="${track.id}" ${checked}></td>
             <td class="uba-number">${track.id}</td>
-            <td>${escapeHtml(displayTitle)}${patternHint ? `<div class="uba-pattern-tag">${patternHint}</div>` : ''}</td>
+            <td${titleTooltip}>${escapeHtml(displayTitle)}${treeHint}${patternHint ? `<div class="uba-pattern-tag">${patternHint}</div>` : ''}</td>
             <td class="uba-number">${formatSeasonCell(track)}</td>
             <td class="uba-number">${formatEpisodeCell(track)}</td>
             <td>${escapeHtml(statusLabel)}</td>
