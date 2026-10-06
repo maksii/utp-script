@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ukrab.work Bulk Track Assistant
 // @namespace    https://ukrab.work/
-// @version      0.5.3
+// @version      0.5.8
 // @description  Load unlinked tracks, parse filenames, optionally enrich from folder-tree JSON, match TMDB, and link tracks in bulk.
 // @match        https://ukrab.work/*
 // @run-at       document-start
@@ -34,6 +34,8 @@
     titleSeasonDashEp: String.raw`^(?<title>.+?)\s+(?<season>\d{1,3})\s*[-–—]\s*(?<episode>\d{1,5})(?=\s|_track|\[|\(|\.|$)`,
     titleSpaceSeasonEp: String.raw`^(?<title>.+?)\s+(?<season>\d{1,3})\s+(?<episode>\d{1,5})(?=_track)`,
     titleSpaceEpTrack: String.raw`^(?<title>.+?)\s+(?<episode>\d{1,5})(?=_track)`,
+    // РГ / Ukrainian: Title [01 з 12]_track / Title [01 из 24]_track
+    rgBracketEpOfTotal: String.raw`^(?<title>.+?)\s*\[(?<episode>\d{1,3})\s*(?:з|із|из|of)\s*\d{1,3}\](?:_track\d+)?(?:\.[^.]+)?$`,
     dashEp: String.raw`^(?<title>.+?)\s*[-–—]\s*(?<episode>\d{1,5})(?=\s|_track|\[|\(|\.|$)`,
     aniuaBracketEp: String.raw`^(?:\[[^\]]+\]_)?(?<title>.+?)_\[(?<episode>\d{1,5})\]_`,
     specVypusk: String.raw`^(?<title>.+?)\s*[-–—]\s*(?:спецвипуск|спец\.?\s*вип\.?|special)\s*(?<episode>\d{1,5})`,
@@ -63,6 +65,8 @@
     PATTERN_FRAGMENTS.epOnlyNxN,
     PATTERN_FRAGMENTS.leadingAbsEpisode,
   ];
+  const ABSOLUTE_EPISODE_PATTERNS = new Set([PATTERN_FRAGMENTS.leadingAbsEpisode]);
+  const DEFAULT_SEASON_WHEN_EPISODE_ONLY = 1;
 
   const TV_PATTERNS = [
     PATTERN_FRAGMENTS.seasonLabel,
@@ -72,6 +76,7 @@
     PATTERN_FRAGMENTS.titleSeasonEpDash,
     PATTERN_FRAGMENTS.titleSeasonDashEp,
     PATTERN_FRAGMENTS.titleSpaceSeasonEp,
+    PATTERN_FRAGMENTS.rgBracketEpOfTotal,
     PATTERN_FRAGMENTS.dashEp,
     PATTERN_FRAGMENTS.titleSpaceEpTrack,
     PATTERN_FRAGMENTS.aniuaBracketEp,
@@ -97,23 +102,33 @@
 
   const TREE_NOISE_DIR_RE =
     /^(?:toloka|qbittorrent|downloads|films?|movies?|series|serials?|tv|anime|torrents?|video|media)$/i;
+  // Skip these when walking up for a show title (keep looking at parent).
+  const TREE_SKIP_DIR_RE =
+    /^(?:specials?|extras?|bonuses?|bonus|samples?|sample|featurettes?|ovas?|onas?|ncop|nced|misc|other|scans?|soundtrack|ost)$/i;
   const TREE_SEASON_DIR_RE =
     /^(?:Season|Сезон|Saison|Temporada)\s*0*(\d{1,3})\b|^S0*(\d{1,3})$|^\(?\s*0*(\d{1,3})\s*(?:сезон|season)\s*\)?$|^.*?\(\s*0*(\d{1,3})\s*(?:сезон|season)\s*\)$/i;
-  const TREE_SEASON_EMBED_RE = /^(?<title>.+?)[.\s]+(?:Сезон|Season)\s*(?<season>\d{1,3})\b/i;
+  const TREE_SEASON_EMBED_RE =
+    /^(?<title>.+?)(?:[.\s_-]+|[-–—]\s*)(?:Сезон|Season)\s*(?<season>\d{1,3})\b/i;
+  const TREE_SEASON_BRACKET_RE = /\[(?:Season|Сезон)\s*(?<season>\d{1,3})\]/i;
   const TREE_SXX_IN_FOLDER_RE =
     /^(?<title>.+?)(?:[.\s_-]+)S(?<season>\d{1,3})(?![Ee])(?:[.\s_-]+(?<year>\d{4}(?:\s*[-–—]\s*\d{4})?))?(?:[.\s_-]|$)/i;
-  const TREE_SEASON_RANGE_PAREN_RE = /\s*\(\s*(?:Season|Сезон)\s*\d{1,3}(?:\s*[,;]\s*Part\s*\d{1,3}|\s*[-–—]\s*\d{1,3})?\s*\)\s*/i;
+  const TREE_SEASON_RANGE_PAREN_RE = /\s*\(\s*(?:Season|Сезон)\s*\d{1,3}(?:\s*[,;]\s*Part\s*\d{1,3}|\s*[-–—]\s*\d{1,3})\s*\)\s*/i;
   const TREE_SEASON_PAREN_RE = /\s*\(\s*(?:Season|Сезон)\s*(?<season>\d{1,3})[^)]*\)\s*/i;
   const TREE_YEAR_RANGE_PAREN_RE = /\s*\(\d{4}(?:\s*[-–—]\s*\d{4})?\)\s*/;
   const TREE_RELEASE_DASH_RE =
     /\s*[-–—]\s*(?:WEB-?DL|WEBDL|WEBRip|BDRip|BDRemux|Blu-?Ray|HDTV|DVDRip|DVD|SATRip|IPTV|TVRip|720p|1080p|2160p).*$/i;
-  // Short tokens (UA/Sub/NF) must use word boundaries — bare "UA" otherwise matches inside "SquarePants".
-  const TREE_QUALITY_TAIL_RE =
-    /\s*(?:(?:\[[^\]]+\])|\([^)]*(?:WEB|BDRip|Blu|HDTV|DVD|SAT|IPTV|Rip|1080|720|Ukr|UKR|Hurtom|Sub)[^)]*\)|\b(?:WEB-?DL(?:Rip)?|WEBDL|WEBRip|BDRip|BDRemux|Blu-?Ray|HDTV|DVDRip|SATRip|IPTV(?:Rip)?|TVRip(?:-AVC)?|AMZN|NF|x264|x265|HEVC|AAC|DTS|MP2|1080p|1080i|720p|2160p|480p|UKR|Ukr|UA|ENG|Multi|AI\s*Upscale)\b|\b\d+x(?:UKR|UA|Ukr)?\b)+\s*$/i;
+  // Codec suffix optional so "DVDRip-AVC" / "WEB-DLRip-AVC, TVRip-AVC" strip fully.
+  const TREE_QUALITY_TOKEN_RE =
+    String.raw`(?:\[[^\]]+\]|\([^)]*(?:WEB|BDRip|Blu|HDTV|DVD|SAT|IPTV|Rip|1080|720|Ukr|UKR|Hurtom|Sub)[^)]*\)|\b(?:WEB-?DL(?:Rip)?|WEBDL|WEBRip|BDRip|BDRemux|Blu-?Ray|HDTV|DVDRip|SATRip|IPTV(?:Rip)?|TVRip|AMZN|NF|CR|x264|x265|H\.?\s*26[45]|HEVC|AVC|AAC|DTS(?:-HD)?|MP2|DD(?:P)?|1080p|1080i|720p|2160p|576p|480p|UKR|Ukr|UA|ENG|Multi|AI\s*Upscale|Remux|REMUX)\b(?:[-._]?AVC|[-._]?HEVC)?|\b\d+x(?:UKR|UA|Ukr)?\b)`;
+  const TREE_QUALITY_TAIL_RE = new RegExp(
+    String.raw`(?:\s*[,;]\s*|\s+)*${TREE_QUALITY_TOKEN_RE}(?:(?:\s*[,;]\s*|\s+)+${TREE_QUALITY_TOKEN_RE})*\s*$`,
+    'i',
+  );
   const TRACK_SUFFIX_RE = /_track\d+(?:-[a-f0-9]+)?$/i;
   const TREE_FILE_CODE_PATTERNS = [
     /\[(?<season>\d{1,2})[xX](?<episode>\d{1,3})\]/,
     /\((?<season>\d{1,2})[xX](?<episode>\d{1,3})\)/,
+    /\[(?<episode>\d{1,3})\s*(?:з|із|из|of)\s*\d{1,3}\]/i,
     /(?:^|[\s._\-–—])[Ss](?<season>\d{1,3})(?:P\d{1,3})?[Ee](?<episode>\d{1,5})(?=\D|$)/,
     /(?:^|[\s._\-–—\[])(?<season>\d{1,2})[xX](?<episode>\d{1,3})(?=\D|$)/,
     /^(?<episode>\d{2,3})\./,
@@ -145,8 +160,8 @@
       patterns: [PATTERN_FRAGMENTS.titleSeasonEpDash],
     },
     'rg-space': {
-      label: 'Title Season Episode _track (РГ style)',
-      patterns: [PATTERN_FRAGMENTS.titleSpaceSeasonEp, PATTERN_FRAGMENTS.titleSpaceEpTrack],
+      label: 'Title Season Episode _track / Title [NN з MM]_track (РГ style)',
+      patterns: [PATTERN_FRAGMENTS.rgBracketEpOfTotal, PATTERN_FRAGMENTS.titleSpaceSeasonEp, PATTERN_FRAGMENTS.titleSpaceEpTrack],
     },
     'aniua-bracket': {
       label: 'AniUA: Title_[Episode]_...',
@@ -193,7 +208,10 @@
     manualOverrides: new Map(),
     folderTree: null,
     groupFromTree: new Set(),
+    confirmResolver: null,
   };
+
+  const TOAST_DEFAULT_MS = 6000;
 
   const ui = {};
 
@@ -427,6 +445,93 @@
       #${PANEL_ID} .uba-inline { display: flex; align-items: center; gap: 6px; }
       #${PANEL_ID} .uba-inline input[type="checkbox"] { width: auto; }
       #${PANEL_ID} .uba-hidden { display: none !important; }
+      #${PANEL_ID} .uba-toast-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+      #${PANEL_ID} .uba-toast {
+        padding: 8px 10px;
+        border-radius: 4px;
+        border: 1px solid #ced4da;
+        background: #f8f9fa;
+        font-size: 12px;
+        line-height: 1.4;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
+      }
+      #${PANEL_ID} .uba-toast-ok { border-color: #badbcc; background: #d1e7dd; color: #0f5132; }
+      #${PANEL_ID} .uba-toast-error { border-color: #f5c2c7; background: #f8d7da; color: #842029; }
+      #${PANEL_ID} .uba-toast-warning { border-color: #ffecb5; background: #fff3cd; color: #664d03; }
+      #${PANEL_ID} .uba-toast-info { border-color: #b6d4fe; background: #cfe2ff; color: #084298; }
+      #${PANEL_ID} .uba-toast-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      #${PANEL_ID} .uba-toast-close {
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+        padding: 0;
+        color: inherit;
+        opacity: .7;
+      }
+      #${PANEL_ID} .uba-toast-close:hover { opacity: 1; }
+      #${PANEL_ID} .uba-confirm-backdrop {
+        position: absolute;
+        inset: 0;
+        z-index: 6;
+        background: rgba(33, 37, 41, .45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+      }
+      #${PANEL_ID} .uba-confirm {
+        width: min(520px, 100%);
+        max-height: calc(100% - 32px);
+        overflow: auto;
+        background: #fff;
+        border-radius: 8px;
+        border: 1px solid #adb5bd;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, .25);
+        padding: 14px;
+      }
+      #${PANEL_ID} .uba-confirm-title {
+        font-weight: 700;
+        font-size: 15px;
+        margin-bottom: 10px;
+      }
+      #${PANEL_ID} .uba-confirm-body { font-size: 13px; line-height: 1.45; }
+      #${PANEL_ID} .uba-confirm-dl {
+        margin: 0 0 10px;
+        display: grid;
+        grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+        gap: 4px 10px;
+      }
+      #${PANEL_ID} .uba-confirm-dl dt {
+        margin: 0;
+        font-weight: 600;
+        color: #6c757d;
+      }
+      #${PANEL_ID} .uba-confirm-dl dd {
+        margin: 0;
+        word-break: break-word;
+      }
+      #${PANEL_ID} .uba-confirm-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 14px;
+      }
       #${PANEL_ID} progress { width: 100%; height: 18px; }
       #${PANEL_ID} .uba-log {
         max-height: 170px;
@@ -473,6 +578,28 @@
       }
       #${PANEL_ID} .uba-group-item:hover { background: #f8f9fa; }
       #${PANEL_ID} .uba-group-item[data-active="true"] { background: #cfe2ff; }
+      #${PANEL_ID} .uba-group-meta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+        flex-shrink: 0;
+      }
+      #${PANEL_ID} .uba-group-state {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .02em;
+        padding: 1px 5px;
+        border-radius: 3px;
+        white-space: nowrap;
+      }
+      #${PANEL_ID} .uba-group-item[data-work-state="untouched"] .uba-group-state { background: #e9ecef; color: #6c757d; }
+      #${PANEL_ID} .uba-group-item[data-work-state="ready"] .uba-group-state { background: #cfe2ff; color: #084298; }
+      #${PANEL_ID} .uba-group-item[data-work-state="queued"] .uba-group-state { background: #fff3cd; color: #664d03; }
+      #${PANEL_ID} .uba-group-item[data-work-state="running"] .uba-group-state { background: #cff4fc; color: #055160; }
+      #${PANEL_ID} .uba-group-item[data-work-state="partial"] .uba-group-state { background: #e2d9f3; color: #432874; }
+      #${PANEL_ID} .uba-group-item[data-work-state="done"] .uba-group-state { background: #d1e7dd; color: #0f5132; }
       #${PANEL_ID} .uba-group-item .uba-badge {
         font-size: 11px;
         color: #6c757d;
@@ -624,13 +751,14 @@
     panel.dataset.collapsed = 'false';
     panel.innerHTML = `
       <div class="uba-header">
-        <div class="uba-title">Ukrab Bulk Track Assistant v0.5.3</div>
+        <div class="uba-title">Ukrab Bulk Track Assistant v0.5.8</div>
         <div class="uba-header-actions">
           <button type="button" data-action="collapse" title="Collapse">−</button>
           <button type="button" data-action="close" title="Hide">×</button>
         </div>
       </div>
       <div class="uba-body">
+        <div class="uba-toast-stack" data-role="toast-stack"></div>
         <div class="uba-grid">
           <div class="uba-status-row">
             <div class="uba-notice" data-role="route-status"></div>
@@ -680,7 +808,7 @@
               <option value="s-dash-ep">Title sN -/–/— Episode ...</option>
               <option value="season-label">Title (Сезон N) -/–/— Episode ...</option>
               <option value="title-season-episode">Title - Season - Episode - ...</option>
-              <option value="rg-space">Title Season Episode _track (РГ style)</option>
+              <option value="rg-space">Title [NN з MM]_track / Season Episode _track (РГ style)</option>
               <option value="aniua-bracket">AniUA: Title_[Episode]_...</option>
               <option value="spec-vypusk">Title - спецвипуск NN ...</option>
               <option value="title-space-ep">Title NN (release) / Title NN [release]</option>
@@ -759,6 +887,9 @@
           <div class="uba-split">
             <div class="uba-split-side">
               <label>Quick group list (click to jump)</label>
+              <div class="uba-help" style="margin-bottom:6px">
+                Status pills: <strong>New</strong> (untouched), <strong>Ready</strong> (TMDB picked), <strong>Queued</strong>, <strong>Linking</strong>, <strong>Started</strong> (partial), <strong>Done</strong>.
+              </div>
               <div class="uba-group-list" data-role="group-list"></div>
             </div>
             <div class="uba-split-main">
@@ -850,7 +981,7 @@
             <input id="uba-episode-offset" type="number" value="0" step="1">
           </div>
           <div class="uba-col-12 uba-help" data-role="tv-episode-help-wrap">
-            Episode offset is added to each parsed episode before linking. Manual per-track E values in the table override the offset. Fixed season applies to all tracks and overrides per-track S edits.
+            Episode offset is added to each parsed episode before linking. Manual per-track E values in the table override the offset. When only an episode is parsed (no season), season defaults to 1. Fixed season applies to all tracks and overrides per-track S edits.
           </div>
         </div>
 
@@ -876,6 +1007,16 @@
           <progress data-role="progress" value="0" max="1"></progress>
           <div class="uba-notice" data-role="progress-text" style="margin-top:6px">Idle.</div>
           <div class="uba-log" data-role="log" style="margin-top:8px">Ready.</div>
+        </div>
+      </div>
+      <div class="uba-confirm-backdrop uba-hidden" data-role="confirm-backdrop">
+        <div class="uba-confirm" role="dialog" aria-modal="true" aria-labelledby="uba-confirm-title">
+          <div class="uba-confirm-title" id="uba-confirm-title" data-role="confirm-title"></div>
+          <div class="uba-confirm-body" data-role="confirm-body"></div>
+          <div class="uba-confirm-actions">
+            <button class="uba-btn" type="button" data-action="confirm-cancel" data-role="confirm-cancel">Cancel</button>
+            <button class="uba-btn uba-btn-primary" type="button" data-action="confirm-ok" data-role="confirm-ok">Confirm</button>
+          </div>
         </div>
       </div>
     `;
@@ -926,6 +1067,12 @@
       progress: panel.querySelector('[data-role="progress"]'),
       progressText: panel.querySelector('[data-role="progress-text"]'),
       log: panel.querySelector('[data-role="log"]'),
+      toastStack: panel.querySelector('[data-role="toast-stack"]'),
+      confirmBackdrop: panel.querySelector('[data-role="confirm-backdrop"]'),
+      confirmTitle: panel.querySelector('[data-role="confirm-title"]'),
+      confirmBody: panel.querySelector('[data-role="confirm-body"]'),
+      confirmOk: panel.querySelector('[data-role="confirm-ok"]'),
+      confirmCancel: panel.querySelector('[data-role="confirm-cancel"]'),
       start: panel.querySelector('[data-action="start"]'),
       abort: panel.querySelector('[data-action="abort"]'),
       resetManualSe: panel.querySelector('[data-action="reset-manual-se"]'),
@@ -937,6 +1084,12 @@
     ui.pattern.readOnly = true;
 
     panel.addEventListener('click', handlePanelClick);
+    panel.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && ui.confirmBackdrop && !ui.confirmBackdrop.classList.contains('uba-hidden')) {
+        event.preventDefault();
+        closeConfirm(false);
+      }
+    });
     ui.preset.addEventListener('change', applyPreset);
     ui.pattern.addEventListener('input', () => {
       if (!ui.pattern.readOnly) ui.preset.value = 'custom';
@@ -948,7 +1101,7 @@
     ui.titleGroup.addEventListener('change', () => {
       applyGroupContext();
       renderTrackTable();
-      renderGroupList();
+      syncGroupListActiveState();
     });
     ui.filter.addEventListener('input', renderTrackTable);
     ui.statusFilter.addEventListener('change', renderTrackTable);
@@ -987,7 +1140,7 @@
       ui.titleGroup.value = item.dataset.groupKey;
       applyGroupContext();
       renderTrackTable();
-      renderGroupList();
+      syncGroupListActiveState();
     });
     ui.treeFile?.addEventListener('change', () => {
       const file = ui.treeFile.files?.[0];
@@ -1052,6 +1205,11 @@
   }
 
   function handlePanelClick(event) {
+    if (event.target === ui.confirmBackdrop) {
+      closeConfirm(false);
+      return;
+    }
+
     const tmdbPick = event.target.closest('[data-tmdb-index]');
     if (tmdbPick) {
       chooseTmdbResult(Number.parseInt(tmdbPick.dataset.tmdbIndex, 10));
@@ -1070,6 +1228,14 @@
     }
     if (action === 'close') {
       ui.panel.remove();
+      return;
+    }
+    if (action === 'confirm-ok') {
+      closeConfirm(true);
+      return;
+    }
+    if (action === 'confirm-cancel') {
+      closeConfirm(false);
       return;
     }
     if (state.running && ['load-api', 'reparse', 'load-tree', 'clear-tree'].includes(action)) return;
@@ -1094,7 +1260,9 @@
     };
 
     Promise.resolve(actions[action]?.()).catch((error) => {
-      log(`Unexpected error: ${formatError(error)}`, 'error');
+      const message = formatError(error);
+      log(`Unexpected error: ${message}`, 'error');
+      showToast(message, { kind: 'error' });
       console.error('[Ukrab Bulk Assistant]', error);
     });
   }
@@ -1114,12 +1282,19 @@
     }
   }
 
-  function compilePatterns() {
+  function getActivePatternSources() {
     const preset = PRESETS[ui.preset.value];
-    const sourcePatterns = preset?.patterns ?? [ui.pattern.value];
+    return preset?.patterns ?? [ui.pattern.value];
+  }
 
+  function applyDefaultSeasonWhenEpisodeOnly(season, episode, { skipDefault = false } = {}) {
+    if (skipDefault || Number.isInteger(season)) return season;
+    return Number.isInteger(episode) ? DEFAULT_SEASON_WHEN_EPISODE_ONLY : null;
+  }
+
+  function compilePatterns() {
     try {
-      return sourcePatterns.map((pattern) => new RegExp(pattern, 'i'));
+      return getActivePatternSources().map((pattern) => new RegExp(pattern, 'i'));
     } catch (error) {
       throw new Error(`Invalid filename regex: ${error.message}`);
     }
@@ -1247,15 +1422,18 @@
     const trackIds = state.groupTrackIds.get(groupKey) || [];
     let linked = 0;
     let failed = 0;
+    let running = 0;
     for (const id of trackIds) {
       const trackState = state.statuses.get(id)?.state;
       if (trackState === 'success') linked += 1;
       else if (trackState === 'error') failed += 1;
+      else if (trackState === 'running') running += 1;
     }
     const stats = {
       total: trackIds.length,
       linked,
       failed,
+      running,
       pending: trackIds.length - linked,
     };
     state.groupStatsCache.set(groupKey, stats);
@@ -1267,16 +1445,170 @@
     else state.groupStatsCache.clear();
   }
 
+  function getGroupWorkState(groupKey) {
+    if (!groupKey) return 'untouched';
+    if (state.running && state.lastRun?.groupKey === groupKey) return 'running';
+    if (state.linkQueue.some((job) => job.groupKey === groupKey)) return 'queued';
+    const stats = getGroupStats(groupKey);
+    if (stats.total > 0 && stats.pending === 0) return 'done';
+    if (stats.linked > 0 || stats.failed > 0) return 'partial';
+    if (getCachedTmdb(groupKey)) return 'ready';
+    return 'untouched';
+  }
+
+  function formatGroupWorkStateLabel(workState) {
+    switch (workState) {
+      case 'running':
+        return 'Linking';
+      case 'queued':
+        return 'Queued';
+      case 'done':
+        return 'Done';
+      case 'partial':
+        return 'Started';
+      case 'ready':
+        return 'Ready';
+      default:
+        return 'New';
+    }
+  }
+
+  function formatGroupWorkStateTitle(workState) {
+    switch (workState) {
+      case 'running':
+        return 'This group is currently being linked.';
+      case 'queued':
+        return 'Waiting in the link queue.';
+      case 'ready':
+        return 'TMDB title selected; ready to link.';
+      case 'untouched':
+        return 'No TMDB match yet; not linked.';
+      case 'partial':
+        return 'Some tracks linked; more remain.';
+      case 'done':
+        return 'All tracks in this group are linked.';
+      default:
+        return '';
+    }
+  }
+
   function formatGroupBadge(stats) {
-    const parts = [`${stats.pending} pending`, `${stats.linked} linked`];
+    const parts = [];
+    if (stats.running > 0) parts.push(`${stats.running} linking`);
+    const awaiting = Math.max(0, stats.pending - stats.running - stats.failed);
+    if (awaiting > 0) parts.push(`${awaiting} pending`);
+    else if (stats.pending > 0 && stats.running === 0) parts.push(`${stats.pending} pending`);
+    if (stats.linked > 0) parts.push(`${stats.linked} linked`);
     if (stats.failed > 0) parts.push(`${stats.failed} failed`);
     return parts.join(' · ');
+  }
+
+  function formatTitleGroupOptionLabel(groupKey) {
+    const count = state.titleGroups.get(groupKey) || 0;
+    const stats = getGroupStats(groupKey);
+    const treeMark = state.groupFromTree?.has(groupKey) ? ' · tree' : '';
+    const stateMark = `[${formatGroupWorkStateLabel(getGroupWorkState(groupKey))}] `;
+    if (groupKey === UNPARSED_GROUP) {
+      return `${stateMark}Unparsed (${formatGroupBadge(stats)} / ${count.toLocaleString()})`;
+    }
+    return `${stateMark}${groupKey}${treeMark} (${formatGroupBadge(stats)} / ${count.toLocaleString()})`;
+  }
+
+  function ensureGroupListItem(groupKey) {
+    let item = ui.groupList.querySelector(`[data-group-key="${CSS.escape(groupKey)}"]`);
+    if (!item) {
+      item = document.createElement('div');
+      item.className = 'uba-group-item';
+      item.dataset.groupKey = groupKey;
+      item.innerHTML = `
+        <span class="uba-group-label"></span>
+        <span class="uba-group-meta">
+          <span class="uba-group-state"></span>
+          <span class="uba-badge"></span>
+        </span>
+      `;
+      ui.groupList.appendChild(item);
+    }
+    return item;
+  }
+
+  function applyGroupListItemState(item, groupKey) {
+    const count = state.titleGroups.get(groupKey) || 0;
+    const stats = getGroupStats(groupKey);
+    const active = ui.titleGroup?.value || '';
+    const workState = getGroupWorkState(groupKey);
+    const label = groupKey === UNPARSED_GROUP ? 'Unparsed' : groupKey;
+    const done = stats.pending === 0 && stats.total > 0;
+
+    item.dataset.active = String(groupKey === active);
+    item.dataset.done = String(done);
+    item.dataset.tree = String(state.groupFromTree?.has(groupKey) || false);
+    item.dataset.workState = workState;
+
+    const labelEl = item.querySelector('.uba-group-label');
+    if (labelEl) labelEl.textContent = label;
+
+    const stateEl = item.querySelector('.uba-group-state');
+    if (stateEl) {
+      stateEl.textContent = formatGroupWorkStateLabel(workState);
+      stateEl.title = formatGroupWorkStateTitle(workState);
+    }
+
+    const badgeEl = item.querySelector('.uba-badge');
+    if (badgeEl) badgeEl.textContent = `${formatGroupBadge(stats)} / ${count.toLocaleString()}`;
+  }
+
+  function updateGroupListItem(groupKey) {
+    if (!ui.groupList || !groupKey) return;
+    applyGroupListItemState(ensureGroupListItem(groupKey), groupKey);
+  }
+
+  function syncGroupListActiveState() {
+    if (!ui.groupList) return;
+    const active = ui.titleGroup?.value || '';
+    for (const item of ui.groupList.querySelectorAll('[data-group-key]')) {
+      item.dataset.active = String(item.dataset.groupKey === active);
+    }
+  }
+
+  function ensureTitleGroupOption(groupKey) {
+    let option = [...ui.titleGroup.options].find((opt) => opt.value === groupKey);
+    if (!option) {
+      option = document.createElement('option');
+      option.value = groupKey;
+      ui.titleGroup.appendChild(option);
+    }
+    return option;
+  }
+
+  function updateTitleGroupOption(groupKey) {
+    if (!ui.titleGroup || !groupKey) return;
+    const option = ensureTitleGroupOption(groupKey);
+    const workState = getGroupWorkState(groupKey);
+    option.textContent = formatTitleGroupOptionLabel(groupKey);
+    option.dataset.workState = workState;
+    option.title = formatGroupWorkStateTitle(workState);
+  }
+
+  function refreshGroupWorkStates(groupKeys = []) {
+    const keys = groupKeys.length ? [...new Set(groupKeys.filter(Boolean))] : [...state.titleGroups.keys()];
+    for (const key of keys) {
+      updateGroupListItem(key);
+      updateTitleGroupOption(key);
+    }
   }
 
   function refreshGroupUi(options = {}) {
     if (options.rebuild) rebuildTitleGroups();
     refreshTitleGroupSelect();
     renderGroupList();
+  }
+
+  function notifyGroupProgress(groupKey) {
+    if (!groupKey) return;
+    invalidateGroupStats(groupKey);
+    updateGroupListItem(groupKey);
+    updateTitleGroupOption(groupKey);
   }
 
   function formatJobGroupLabel(groupKey) {
@@ -1336,12 +1668,6 @@
     return true;
   }
 
-  function notifyGroupProgress(groupKey) {
-    if (!groupKey) return;
-    invalidateGroupStats(groupKey);
-    refreshGroupUi();
-  }
-
   function applyGroupContext() {
     const titleKey = ui.titleGroup?.value || '';
     const searchTitle = titleKey && titleKey !== UNPARSED_GROUP ? titleKey : '';
@@ -1383,7 +1709,11 @@
     const { silent = false } = options;
     const group = ui.titleGroup?.value || '';
     if (!group) {
-      if (!silent) alert('Select a title group first.');
+      if (!silent) {
+        const message = 'Select a title group first.';
+        updateLinkStatus(message, 'error');
+        showToast(message, { kind: 'warning' });
+      }
       return false;
     }
     state.selectedIds.clear();
@@ -1411,7 +1741,7 @@
     ui.titleGroup.value = keys[nextIndex];
     applyGroupContext();
     renderTrackTable();
-    renderGroupList();
+    syncGroupListActiveState();
   }
 
   function findNextReadyGroup(startKey = '') {
@@ -1434,7 +1764,7 @@
     ui.titleGroup.value = nextKey;
     applyGroupContext();
     selectGroupPending();
-    renderGroupList();
+    syncGroupListActiveState();
     renderTrackTable();
     log(`Advanced to ready group: “${nextKey}”.`);
     if (autoStart) setTimeout(() => startBulkLink({ skipConfirm: true }), 0);
@@ -1470,19 +1800,24 @@
     if (!state.linkQueue.length) {
       ui.queueStatus.innerHTML = '';
       ui.queueStatus.className = 'uba-notice uba-help';
-      return;
+    } else {
+      const items = state.linkQueue
+        .map((job, index) => {
+          const title = escapeHtml(formatJobGroupLabel(job.groupKey));
+          const details = escapeHtml(formatJobSettingsSummary(job));
+          return `<li><strong>${index + 1}. ${title}</strong><div class="uba-queue-meta">${details}</div></li>`;
+        })
+        .join('');
+
+      ui.queueStatus.innerHTML = `<div><strong>Queued (${state.linkQueue.length})</strong></div><ol class="uba-queue-list">${items}</ol>`;
+      ui.queueStatus.className = 'uba-notice';
     }
 
-    const items = state.linkQueue
-      .map((job, index) => {
-        const title = escapeHtml(formatJobGroupLabel(job.groupKey));
-        const details = escapeHtml(formatJobSettingsSummary(job));
-        return `<li><strong>${index + 1}. ${title}</strong><div class="uba-queue-meta">${details}</div></li>`;
-      })
-      .join('');
-
-    ui.queueStatus.innerHTML = `<div><strong>Queued (${state.linkQueue.length})</strong></div><ol class="uba-queue-list">${items}</ol>`;
-    ui.queueStatus.className = 'uba-notice';
+    const workStateKeys = [
+      ...(state.running && state.lastRun?.groupKey ? [state.lastRun.groupKey] : []),
+      ...state.linkQueue.map((job) => job.groupKey),
+    ].filter(Boolean);
+    if (workStateKeys.length) refreshGroupWorkStates(workStateKeys);
   }
 
   function ingestTrackPayload(payload, sourceLabel = 'API') {
@@ -1533,16 +1868,26 @@
   }
 
   function cleanFolderShowTitle(name) {
-    let title = stripBracketPrefix(String(name ?? '').replace(/\./g, ' '));
+    let title = stripBracketPrefix(String(name ?? '').replace(/[._]+/g, ' '));
     let season = null;
 
-    const seasonParen = title.match(TREE_SEASON_PAREN_RE);
-    if (seasonParen?.groups?.season) {
-      const parsed = Number.parseInt(seasonParen.groups.season, 10);
+    const seasonBracket = title.match(TREE_SEASON_BRACKET_RE);
+    if (seasonBracket?.groups?.season) {
+      const parsed = Number.parseInt(seasonBracket.groups.season, 10);
       if (Number.isInteger(parsed)) season = parsed;
-      title = title.replace(TREE_SEASON_PAREN_RE, ' ').trim();
-    } else if (TREE_SEASON_RANGE_PAREN_RE.test(title)) {
+      title = title.replace(TREE_SEASON_BRACKET_RE, ' ').trim();
+    }
+
+    // Ranges first — "(Season 1-10)" must not become season=1.
+    if (TREE_SEASON_RANGE_PAREN_RE.test(title)) {
       title = title.replace(TREE_SEASON_RANGE_PAREN_RE, ' ').trim();
+    } else {
+      const seasonParen = title.match(TREE_SEASON_PAREN_RE);
+      if (seasonParen?.groups?.season) {
+        const parsed = Number.parseInt(seasonParen.groups.season, 10);
+        if (Number.isInteger(parsed) && season == null) season = parsed;
+        title = title.replace(TREE_SEASON_PAREN_RE, ' ').trim();
+      }
     }
 
     const embed = title.match(TREE_SEASON_EMBED_RE);
@@ -1571,16 +1916,26 @@
       title = title.replace(/\s*\([^)]*(?:WEB|BDRip|Blu|HDTV|DVD|SAT|IPTV|Rip|1080|720|Ukr|UKR|Hurtom|Sub)[^)]*\)\s*$/i, '').trim();
       title = title.replace(/\s+by\s+\S+\s*$/i, '').trim();
       title = title.replace(/\s*\(\d{4}(?:\s*[-–—]\s*\d{4})?\)\s*/g, ' ').trim();
+      title = title.replace(/\s+\d{4}\s*[-–—]\s*\d{4}\s*$/g, '').trim();
+      title = title.replace(/\s+(?:Specials?|Extras?|Bonus)\b/gi, ' ').trim();
+      title = title.replace(/\s+(?:Season|Сезон)\s*$/i, '').trim();
       title = title.replace(/\s*[-–—.:|,;]+$/g, '').trim();
       title = title.replace(/\s+/g, ' ').trim();
     }
 
+    // Year before Sxx/Season in release folders ("Show 2026 1080p S03") — keep bare "DuckTales 1989".
+    if (season != null) {
+      title = title.replace(/\s+\d{4}\s*$/g, '').trim();
+    }
+
     title = normaliseParsedTitle(title);
+    if (/^(?:specials?|extras?|bonuses?|ovas?|onas?)$/i.test(title)) title = '';
     return { title, season };
   }
 
   function parseMediaCodesFromName(name) {
     const value = fileStem(name);
+    const absoluteEpisodePattern = TREE_FILE_CODE_PATTERNS[TREE_FILE_CODE_PATTERNS.length - 1];
     for (const pattern of TREE_FILE_CODE_PATTERNS) {
       const match = value.match(pattern);
       if (!match?.groups) continue;
@@ -1590,7 +1945,11 @@
       const episode = episodeRaw == null || episodeRaw === '' ? null : Number.parseInt(episodeRaw, 10);
       if (!Number.isInteger(episode)) continue;
       return {
-        season: Number.isInteger(season) ? season : null,
+        season: applyDefaultSeasonWhenEpisodeOnly(
+          Number.isInteger(season) ? season : null,
+          episode,
+          { skipDefault: pattern === absoluteEpisodePattern },
+        ),
         episode,
       };
     }
@@ -1604,6 +1963,8 @@
 
     for (let index = dirs.length - 1; index >= 0; index -= 1) {
       const dir = dirs[index];
+      if (TREE_SKIP_DIR_RE.test(dir.trim())) continue;
+
       const seasonMatch = dir.trim().match(TREE_SEASON_DIR_RE);
       if (seasonMatch) {
         for (const group of seasonMatch.slice(1)) {
@@ -1858,9 +2219,10 @@
       refreshAfterTreeChange();
       log(`Loaded folder tree “${file.name}”: ${index.fileCount.toLocaleString()} file(s), enriched ${countTreeEnriched().toLocaleString()} track(s).`);
     } catch (error) {
-      updateTreeStatus(`Tree load failed: ${formatError(error)}`, 'error');
-      log(`Tree load failed: ${formatError(error)}`, 'error');
-      alert(`Folder tree JSON failed: ${formatError(error)}`);
+      const message = formatError(error);
+      updateTreeStatus(`Tree load failed: ${message}`, 'error');
+      log(`Tree load failed: ${message}`, 'error');
+      showToast(`Folder tree JSON failed: ${message}`, { kind: 'error' });
     }
   }
 
@@ -1891,10 +2253,17 @@
     const episode = groups.episode == null || groups.episode === '' ? null : Number.parseInt(groups.episode, 10);
     const hasEpisode = Number.isInteger(episode);
     const hasSeason = Number.isInteger(season);
+    const sourcePatterns = getActivePatternSources();
+    const skipDefaultSeason = ABSOLUTE_EPISODE_PATTERNS.has(sourcePatterns[patternIndex]);
+    const resolvedSeason = applyDefaultSeasonWhenEpisodeOnly(
+      hasSeason ? season : null,
+      hasEpisode ? episode : null,
+      { skipDefault: skipDefaultSeason },
+    );
 
     return {
       title,
-      season: hasSeason ? season : null,
+      season: resolvedSeason,
       episode: hasEpisode ? episode : null,
       parseError: title ? '' : hasSeason || hasEpisode ? 'No title in filename' : 'Missing title group',
       patternIndex,
@@ -1978,7 +2347,10 @@
     try {
       compilePatterns();
     } catch (error) {
-      alert(formatError(error));
+      const message = formatError(error);
+      updateDataStatus(`Invalid filename regex: ${message}`, 'error');
+      log(message, 'error');
+      showToast(message, { kind: 'error' });
       return;
     }
 
@@ -2029,8 +2401,9 @@
           (state.folderTree ? `; tree-enriched ${countTreeEnriched().toLocaleString()}.` : '.'),
       );
     } catch (error) {
-      log(formatError(error), 'error');
-      alert(formatError(error));
+      const message = formatError(error);
+      log(message, 'error');
+      showToast(message, { kind: 'error' });
     }
   }
 
@@ -2062,40 +2435,46 @@
 
   function renderGroupList() {
     if (!ui.groupList) return;
-    const active = ui.titleGroup?.value || '';
-    const items = [...state.titleGroups.entries()].slice(0, 80);
-    ui.groupList.innerHTML = items
-      .map(([key, count]) => {
-        const stats = getGroupStats(key);
-        const label = key === UNPARSED_GROUP ? 'Unparsed' : key;
-        const badge = formatGroupBadge(stats);
-        const done = stats.pending === 0 && stats.total > 0;
-        const fromTree = state.groupFromTree?.has(key) || false;
-        return `
-          <div class="uba-group-item" data-group-key="${escapeHtml(key)}" data-active="${key === active}" data-done="${done}" data-tree="${fromTree}">
-            <span class="uba-group-label">${escapeHtml(label)}</span>
-            <span class="uba-badge">${badge} / ${count.toLocaleString()}</span>
-          </div>
-        `;
-      })
-      .join('');
+    const scrollTop = ui.groupList.scrollTop;
+    const entries = [...state.titleGroups.entries()].slice(0, 80);
+    const nextKeys = new Set(entries.map(([key]) => key));
+
+    for (const item of [...ui.groupList.querySelectorAll('[data-group-key]')]) {
+      if (!nextKeys.has(item.dataset.groupKey)) item.remove();
+    }
+
+    for (const [key] of entries) {
+      applyGroupListItemState(ensureGroupListItem(key), key);
+    }
+
+    ui.groupList.scrollTop = scrollTop;
   }
 
   function refreshTitleGroupSelect() {
     if (!ui.titleGroup) return;
     const previous = ui.titleGroup.value;
-    const options = ['<option value="">All parsed titles</option>'];
-    for (const [title, count] of state.titleGroups) {
-      const stats = getGroupStats(title);
-      const treeMark = state.groupFromTree?.has(title) ? ' · tree' : '';
-      const label =
-        title === UNPARSED_GROUP
-          ? `Unparsed (${stats.pending} pending / ${count.toLocaleString()})`
-          : `${title}${treeMark} (${stats.pending} pending / ${count.toLocaleString()})`;
-      options.push(`<option value="${escapeHtml(title)}">${escapeHtml(label)}</option>`);
+
+    let allOption = [...ui.titleGroup.options].find((option) => option.value === '');
+    if (!allOption) {
+      ui.titleGroup.textContent = '';
+      allOption = document.createElement('option');
+      allOption.value = '';
+      allOption.textContent = 'All parsed titles';
+      ui.titleGroup.appendChild(allOption);
     }
-    ui.titleGroup.innerHTML = options.join('');
-    if ([...ui.titleGroup.options].some((option) => option.value === previous)) ui.titleGroup.value = previous;
+
+    const nextKeys = new Set(state.titleGroups.keys());
+    for (const option of [...ui.titleGroup.options]) {
+      if (option.value && !nextKeys.has(option.value)) option.remove();
+    }
+
+    for (const key of state.titleGroups.keys()) {
+      updateTitleGroupOption(key);
+    }
+
+    if ([...ui.titleGroup.options].some((option) => option.value === previous)) {
+      ui.titleGroup.value = previous;
+    }
   }
 
   function getSelectedGroupTitle() {
@@ -2306,8 +2685,38 @@
     return Number.isInteger(track.season) ? track.season : null;
   }
 
-  function renderTrackTable() {
+  function captureTableFocus() {
+    const activeElement = document.activeElement;
+    if (!ui.trackBody?.contains(activeElement)) return null;
+    const trackId = activeElement.dataset?.manualSeason || activeElement.dataset?.manualEpisode;
+    if (!trackId) return null;
+    return {
+      trackId,
+      field: activeElement.dataset.manualSeason ? 'season' : 'episode',
+      selectionStart: activeElement.selectionStart,
+      selectionEnd: activeElement.selectionEnd,
+    };
+  }
+
+  function restoreTableFocus(snapshot) {
+    if (!snapshot || !ui.trackBody) return;
+    const selector =
+      snapshot.field === 'season'
+        ? `[data-manual-season="${CSS.escape(snapshot.trackId)}"]`
+        : `[data-manual-episode="${CSS.escape(snapshot.trackId)}"]`;
+    const input = ui.trackBody.querySelector(selector);
+    if (!input) return;
+    input.focus();
+    if (typeof snapshot.selectionStart === 'number' && typeof input.setSelectionRange === 'function') {
+      input.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+    }
+  }
+
+  function renderTrackTable(options = {}) {
     if (!ui.trackBody) return;
+    const focusSnapshot = options.preserveFocus === false ? null : captureTableFocus();
+    const tableWrap = ui.trackBody.closest('.uba-table-wrap');
+    const scrollTop = tableWrap?.scrollTop ?? 0;
     const matching = sortTracksForDisplay(getMatchingTracks());
     const limit = Math.max(1, Number.parseInt(ui.renderLimit.value, 10) || DEFAULT_RENDER_LIMIT);
     const rendered = matching.slice(0, limit);
@@ -2360,6 +2769,8 @@
     updateResetManualButton();
     updateSelectionSummary(matching, rendered.length);
     updateMatchingToggle(matching);
+    if (tableWrap) tableWrap.scrollTop = scrollTop;
+    restoreTableFocus(focusSnapshot);
   }
 
   function updateSelectionSummary(matching = getMatchingTracks(), renderedCount = null) {
@@ -2655,7 +3066,9 @@
     const queryText = deriveTmdbQuery();
     const requestedType = ui.searchMediaType.value;
     if (!queryText) {
-      alert('Enter a TMDB search query or select a parsed title group.');
+      const message = 'Enter a TMDB search query or select a parsed title group.';
+      updateTmdbSearchStatus(message, 'error');
+      showToast(message, { kind: 'warning' });
       return;
     }
 
@@ -2742,6 +3155,7 @@
     renderTmdbSelected(result);
     renderTmdbResults();
     renderTrackTable();
+    refreshGroupWorkStates([titleKey, getSelectedGroupTitle()].filter(Boolean));
     log(`Selected TMDB ${result.mediaType} ${result.id}: ${result.title}.`);
   }
 
@@ -2826,7 +3240,9 @@
     try {
       run = validateRun();
     } catch (error) {
-      alert(formatError(error));
+      const message = formatError(error);
+      updateLinkStatus(message, 'error');
+      showToast(message, { kind: 'error' });
       return;
     }
 
@@ -2845,18 +3261,23 @@
       const sample = run.selected[0];
       const samplePayload = buildPayload(sample, run.mediaType, run.tmdbId, job.settings);
       const titleSummary = run.parsedTitles.slice(0, 5).join(', ') + (run.parsedTitles.length > 5 ? ', …' : '');
-      const confirmed = pageWindow.confirm(
-        [
-          `Link ${run.selected.length.toLocaleString()} track(s)?`,
-          '',
-          `Parsed title group(s): ${titleSummary || 'none'}`,
-          `Target: ${run.mediaType}, TMDB ${run.tmdbId}`,
-          `First track: ${sample.id} — ${sample.filename}`,
-          `First payload: ${JSON.stringify(samplePayload)}`,
-          '',
-          'Requests run sequentially. You can queue the next group while this one links.',
-        ].join('\n'),
-      );
+      const confirmed = await showConfirm({
+        title: `Link ${run.selected.length.toLocaleString()} track(s)?`,
+        bodyHtml: `
+          <dl class="uba-confirm-dl">
+            <dt>Parsed title group(s)</dt>
+            <dd>${escapeHtml(titleSummary || 'none')}</dd>
+            <dt>Target</dt>
+            <dd>${escapeHtml(run.mediaType)}, TMDB ${run.tmdbId}</dd>
+            <dt>First track</dt>
+            <dd>${escapeHtml(String(sample.id))} — ${escapeHtml(sample.filename)}</dd>
+            <dt>First payload</dt>
+            <dd><code>${escapeHtml(JSON.stringify(samplePayload))}</code></dd>
+          </dl>
+          <p class="uba-help">Requests run sequentially. You can queue the next group while this one links.</p>
+        `,
+        confirmLabel: 'Link tracks',
+      });
       if (!confirmed) return;
     }
 
@@ -2889,6 +3310,10 @@
       groupKey: run.groupKey,
     };
     setRunningUi(true);
+    refreshGroupWorkStates([
+      run.groupKey,
+      ...state.linkQueue.map((job) => job.groupKey),
+    ].filter(Boolean));
     if (run.groupKey && run.groupKey !== UNPARSED_GROUP && !getCachedTmdb(run.groupKey)) {
       const label =
         state.tmdbDetails?.tmdbId === run.tmdbId
@@ -3021,9 +3446,14 @@
   }
 
   function abortBulkLink() {
+    const affectedGroups = [
+      state.lastRun?.groupKey,
+      ...state.linkQueue.map((job) => job.groupKey),
+    ].filter(Boolean);
     state.abortController?.abort();
     state.linkQueue = [];
     updateQueueStatus();
+    refreshGroupWorkStates(affectedGroups);
     log('Abort requested. Cleared link queue.');
   }
 
@@ -3050,6 +3480,80 @@
       if (body && !message.includes(body)) message += ` — ${body}`;
     }
     return message;
+  }
+
+  function dismissToast(toast) {
+    if (!toast?.isConnected) return;
+    if (toast.dataset.timer) clearTimeout(Number(toast.dataset.timer));
+    toast.remove();
+  }
+
+  function showToast(message, { kind = 'info', duration = TOAST_DEFAULT_MS, actionLabel = '', onAction = null } = {}) {
+    if (!ui.toastStack || !message) return;
+    const toast = document.createElement('div');
+    toast.className = `uba-toast uba-toast-${kind}`;
+    toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+
+    const text = document.createElement('div');
+    text.textContent = message;
+    toast.appendChild(text);
+
+    const actions = document.createElement('div');
+    actions.className = 'uba-toast-actions';
+
+    if (actionLabel && onAction) {
+      const actionBtn = document.createElement('button');
+      actionBtn.type = 'button';
+      actionBtn.className = 'uba-btn';
+      actionBtn.textContent = actionLabel;
+      actionBtn.addEventListener('click', () => {
+        onAction();
+        dismissToast(toast);
+      });
+      actions.appendChild(actionBtn);
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'uba-toast-close';
+    closeBtn.title = 'Dismiss';
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', () => dismissToast(toast));
+    actions.appendChild(closeBtn);
+
+    toast.appendChild(actions);
+    ui.toastStack.prepend(toast);
+
+    if (duration > 0) {
+      toast.dataset.timer = String(setTimeout(() => dismissToast(toast), duration));
+    }
+  }
+
+  function closeConfirm(result) {
+    if (!ui.confirmBackdrop) return;
+    ui.confirmBackdrop.classList.add('uba-hidden');
+    if (state.confirmResolver) {
+      const resolver = state.confirmResolver;
+      state.confirmResolver = null;
+      resolver(result);
+    }
+  }
+
+  function showConfirm({ title, bodyHtml, confirmLabel = 'Confirm', cancelLabel = 'Cancel' }) {
+    return new Promise((resolve) => {
+      if (!ui.confirmBackdrop) {
+        resolve(false);
+        return;
+      }
+      if (state.confirmResolver) state.confirmResolver(false);
+      state.confirmResolver = resolve;
+      ui.confirmTitle.textContent = title;
+      ui.confirmBody.innerHTML = bodyHtml;
+      ui.confirmOk.textContent = confirmLabel;
+      ui.confirmCancel.textContent = cancelLabel;
+      ui.confirmBackdrop.classList.remove('uba-hidden');
+      ui.confirmOk.focus();
+    });
   }
 
   function log(message, level = 'info') {
@@ -3089,11 +3593,14 @@
 
     try {
       await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
-      log(`Run report copied (${relevantTracks.length.toLocaleString()} relevant track record(s)).`);
+      const message = `Run report copied (${relevantTracks.length.toLocaleString()} relevant track record(s)).`;
+      log(message);
+      showToast(message, { kind: 'ok' });
     } catch (error) {
       pageWindow.__ukrabBulkAssistantReport = report;
-      log(`Could not copy report: ${formatError(error)}`, 'error');
-      alert('Clipboard access failed. The report is available as window.__ukrabBulkAssistantReport.');
+      const message = `Could not copy report: ${formatError(error)}. Saved to window.__ukrabBulkAssistantReport.`;
+      log(message, 'error');
+      showToast(message, { kind: 'error', duration: 10000 });
     }
   }
 

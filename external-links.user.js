@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         External Links on UNIT3D
 // @namespace    N/A
-// @version      0.10.1
+// @version      0.11.0
 // @description  Add links to other sites on the metadata section of a torrent item
 // @match        *://*/torrents/*
 // @match        *://*/requests/*
@@ -144,6 +144,16 @@
         "https://kinobaza.com.ua/api/external?q=https://www.themoviedb.org/movie/$Id",
       tmdbSearchUrlTv:
         "https://kinobaza.com.ua/api/external?q=https://www.themoviedb.org/tv/$Id",
+      nameSearchUrl: "",
+      type: SITE_TYPES.STANDARD,
+    },
+    {
+      name: "UkrAB",
+      icon: "https://ukrab.work/favicon.png",
+      imdbSearchUrl: "https://ukrab.work/tracks/imdb/$Id",
+      tmdbSearchUrl: "https://ukrab.work/tracks/tmdb/movie:$Id",
+      tmdbSearchUrlTv: "https://ukrab.work/tracks/tmdb/tv:$Id",
+      tvdbSearchUrl: "https://ukrab.work/tracks/tvdb/$Id",
       nameSearchUrl: "",
       type: SITE_TYPES.STANDARD,
     },
@@ -1527,6 +1537,8 @@
         // (e.g. slow.pics /tmdb/tv/ vs /tmdb/movie/, KinoBaza /tv/ vs /movie/).
         const tmdbTemplate = (!isMovie && site.tmdbSearchUrlTv) ? site.tmdbSearchUrlTv : site.tmdbSearchUrl;
         searchUrl = tmdbTemplate.replace("$Id", tmdbId);
+      } else if (tvdbId != "" && site.tvdbSearchUrl) {
+        searchUrl = site.tvdbSearchUrl.replace("$Id", tvdbId);
       } else if (mediaTitle != "" && site.nameSearchUrl != "") {
         // Encode the title so spaces / & / # / ? don't corrupt the query.
         searchUrl = site.nameSearchUrl.replace("$Id", encodeURIComponent(mediaTitle));
