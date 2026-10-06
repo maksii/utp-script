@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ukrab.work Bulk Track Assistant
 // @namespace    https://ukrab.work/
-// @version      0.5.8
+// @version      0.6.0
 // @description  Load unlinked tracks, parse filenames, optionally enrich from folder-tree JSON, match TMDB, and link tracks in bulk.
 // @match        https://ukrab.work/*
 // @run-at       document-start
@@ -13,9 +13,13 @@
 (() => {
   'use strict';
 
-  const TARGET_HASH_PREFIX = '#/my-tracks/unlinked';
-  const AUTH_STORAGE_KEY = 'audio_bucket_auth_token';
-  const UNLINKED_ENDPOINT = '/api/my-library/unlinked?sort_by=created_at&sort_direction=desc';
+  const CSRF_COOKIE = 'audio_bucket_csrf';
+  const UNLINKED_QUERY = 'sort_by=size_bytes&sort_direction=desc&page=1&per_page=all';
+  const UNLINKED_ENDPOINTS = {
+    '/tracks/unlinked': `/api/admin/tracks/unlinked?${UNLINKED_QUERY}`,
+    '/my-tracks/unlinked': `/api/my-library/unlinked?${UNLINKED_QUERY}`,
+  };
+  const TARGET_PATHS_LABEL = Object.keys(UNLINKED_ENDPOINTS).join(' or ');
   const PANEL_ID = 'ukrab-bulk-assistant';
   const STYLE_ID = 'ukrab-bulk-assistant-style';
   const UNPARSED_GROUP = '__UBA_UNPARSED__';
@@ -26,16 +30,23 @@
 
   const PATTERN_FRAGMENTS = {
     seasonLabel: String.raw`^(?<title>.+?)\s*\(\s*(?:Сезон|Season)\s*(?<season>\d{1,3})\s*\)\s*[-–—]\s*(?<episode>\d{1,5})(?=\D|$)`,
-    sxxExx: String.raw`^(?<title>.+?)[\s._\-–—]+S(?<season>\d{1,3})(?:P\d{1,3})?(?:EP|E)(?<episode>\d{1,5})(?=\D|$)`,
-    sxxexxLower: String.raw`^(?<title>.+?)[\s._\-–—]+s(?<season>\d{1,3})(?:p\d{1,3})?e(?<episode>\d{1,5})(?=\D|$)`,
+    // Title.S01E02 / Title S01 E02 / Title.S02.E04 / Title S02EP10
+    sxxExx: String.raw`^(?<title>.+?)[\s._\-–—]+S(?<season>\d{1,3})(?:P\d{1,3})?[\s._-]*(?:EP|E)(?<episode>\d{1,5})(?=\D|$)`,
+    sxxexxLower: String.raw`^(?<title>.+?)[\s._\-–—]+s(?<season>\d{1,3})(?:p\d{1,3})?[\s._-]*e(?<episode>\d{1,5})(?=\D|$)`,
     sSeasonDashEp: String.raw`^(?<title>.+?)\s+s(?<season>\d{1,3})\s*[-–—]\s*(?<episode>\d{1,5})(?=\D|$)`,
     titleSeasonEpDash: String.raw`^(?<title>.+?)\s*[-–—]\s*(?<season>\d{1,3})\s*[-–—]\s*(?<episode>\d{1,5})(?=\D|$)`,
+    // Title 2 - Серія 01 - Name / Title - Episode 5
+    seriaBefore: String.raw`^(?<title>.+?)(?:\s+(?<season>\d{1,2}))?\s*[-–—]\s*(?:серія|серия|episode|ep\.?)\s*(?<episode>\d{1,4})(?=\D|$)`,
+    // Title 1 серія СКО / Title - 03 СЕРІЯ(group)
+    seriaAfter: String.raw`^(?<title>.+?)[\s._\-–—]+(?<episode>\d{1,4})[\s._-]*(?:серія|серия)(?=[\s._\-()\[\]]|$)`,
     // Title 3 - 01 / Title 4 - 22 (season before dash-episode)
     titleSeasonDashEp: String.raw`^(?<title>.+?)\s+(?<season>\d{1,3})\s*[-–—]\s*(?<episode>\d{1,5})(?=\s|_track|\[|\(|\.|$)`,
     titleSpaceSeasonEp: String.raw`^(?<title>.+?)\s+(?<season>\d{1,3})\s+(?<episode>\d{1,5})(?=_track)`,
-    titleSpaceEpTrack: String.raw`^(?<title>.+?)\s+(?<episode>\d{1,5})(?=_track)`,
-    // РГ / Ukrainian: Title [01 з 12]_track / Title [01 из 24]_track
-    rgBracketEpOfTotal: String.raw`^(?<title>.+?)\s*\[(?<episode>\d{1,3})\s*(?:з|із|из|of)\s*\d{1,3}\](?:_track\d+)?(?:\.[^.]+)?$`,
+    titleSpaceEpTrack: String.raw`^(?<title>.+?)[\s_]+(?<episode>\d{1,5})(?=_track)`,
+    // Title_01_track2 / Title_01_Group_track2 / Two_Words_01_Group_SUB_track2
+    titleUnderscoreEp: String.raw`^(?<title>[^_].*?)_(?<episode>\d{1,3})(?=_|\.[^.]+$|$)`,
+    // РГ / Ukrainian: Title [01 з 12] [WEBRip …]_track / Title [01 з ХХ] (total not yet known)
+    rgBracketEpOfTotal: String.raw`^(?<title>.+?)\s*\[(?<episode>\d{1,3})\s*(?:з|із|из|of)\s*(?:\d{1,3}|[XХ?]{1,3})\]`,
     dashEp: String.raw`^(?<title>.+?)\s*[-–—]\s*(?<episode>\d{1,5})(?=\s|_track|\[|\(|\.|$)`,
     aniuaBracketEp: String.raw`^(?:\[[^\]]+\]_)?(?<title>.+?)_\[(?<episode>\d{1,5})\]_`,
     specVypusk: String.raw`^(?<title>.+?)\s*[-–—]\s*(?:спецвипуск|спец\.?\s*вип\.?|special)\s*(?<episode>\d{1,5})`,
@@ -44,23 +55,28 @@
     titleSpaceEpBracket: String.raw`^(?<title>.+?)\s+(?<episode>\d{1,5})\s*\[`,
     multiBracketEp: String.raw`^\[(?<title>.+?)\](?:\[[^\]]+\])+\[(?<episode>\d{1,5})\]`,
     eEpisode: String.raw`^(?<title>.+?)\s+E(?<episode>\d{1,5})(?=\s|\[|_|-|$)`,
+    // Title 01 - OVA
+    titleEpDashTag: String.raw`^(?<title>.+?)\s+(?<episode>\d{1,3})\s*[-–—]\s*(?:OVA|ONA|OAD|SP)(?=[\s._\-()\[\]]|$)`,
     dashOvaEp: String.raw`^(?<title>.+?)\s*[-–—]\s*OVA\s*(?<episode>\d{1,5})?(?=\s|\[|_|\(|\.|$)`,
     dashEpBeforeParen: String.raw`^(?<title>.+?)\s*[-–—]\s*.+?\s+(?<episode>\d{1,5})\s*\(`,
     // Episode-only filenames (title lives in parent folder — use folder-tree JSON to fill title)
-    epOnlySxxExx: String.raw`^[Ss](?<season>\d{1,3})(?:P\d{1,3})?[Ee](?<episode>\d{1,5})(?:[-–—][Ee]?(?<episode2>\d{1,5}))?(?=\D|$)`,
+    epOnlySxxExx: String.raw`^[Ss](?<season>\d{1,3})(?:P\d{1,3})?[\s._-]*[Ee](?<episode>\d{1,5})(?:[-–—][Ee]?(?<episode2>\d{1,5}))?(?=\D|$)`,
+    epOnlySeria: String.raw`^(?:серія|серия|episode)\s*(?<episode>\d{1,4})(?=\D|$)`,
     epOnlyParenNxN: String.raw`^\((?<season>\d{1,2})[xX](?<episode>\d{1,3})\)`,
     epOnlyNxN: String.raw`^(?<season>\d{1,2})[xX](?<episode>\d{1,3})(?=\D|$)`,
     // Absolute episode index: 067.Title.DVDRip (DuckTales 1989, etc.)
     leadingAbsEpisode: String.raw`^(?<episode>\d{2,3})\.(?<title>.+?)(?:\.(?:DVDRip|WEB-?DL(?:Rip)?|WEBRip|BDRip|Blu-?Ray|HDTV|TVRip|SATRip).*)?(?:_track\d+)?(?:\.[^.]+)?$`,
     bracketNumPrefix: String.raw`^\[\d{1,3}\]\s*(?<title>.+?)(?:_track\d+)?(?:\.[^.]+)?$`,
-    movieYear: String.raw`^(?<title>.+?)\s*\(\d{4}\).*?(?:_track\d+)?(?:\.[^.]+)?$`,
-    movieNoYear: String.raw`^(?<title>.+?)(?:\s+|\s*\()(?:WEBRip|WEB-?DL(?:Rip)?|WEBDL|BDRip|BluRay|HDTV|DVDRip|TVRip|SATRip|IPTVRip).*?(?:_track\d+)?(?:\.[^.]+)?$`,
+    // Scene names: Title.2019.1080p… / Title (2011) WEB-DL… — greedy title so the last year wins (Blade.Runner.2049.2017)
+    movieYear: String.raw`^(?<title>.+)[\s._(\[]+(?<year>(?:19|20)\d{2})(?=[\s._)\]-]|$)`,
+    movieNoYear: String.raw`^(?<title>.+?)[\s._(\[]+(?:WEBRip|WEB-?DL(?:Rip)?|WEBDL|BDRip|BDRemux|Remux|Blu-?Ray|HDTV|DVDRip|TVRip|SATRip|IPTVRip|\d{3,4}p)(?=[\s._)\]-]|$)`,
     numberedListPrefix: String.raw`^\d{1,2}\.?\s*(?<title>[A-Za-zА-Яа-яІіЇїЄєҐґ].+?)(?:_track\d+)?(?:\.[^.]+)?$`,
     movie: String.raw`^(?<title>.+?)(?:_track\d+)?(?:\.[^.]+)?$`,
   };
 
   const EP_ONLY_PATTERNS = [
     PATTERN_FRAGMENTS.epOnlySxxExx,
+    PATTERN_FRAGMENTS.epOnlySeria,
     PATTERN_FRAGMENTS.epOnlyParenNxN,
     PATTERN_FRAGMENTS.epOnlyNxN,
     PATTERN_FRAGMENTS.leadingAbsEpisode,
@@ -72,12 +88,17 @@
     PATTERN_FRAGMENTS.seasonLabel,
     PATTERN_FRAGMENTS.sxxExx,
     PATTERN_FRAGMENTS.sxxexxLower,
+    PATTERN_FRAGMENTS.epOnlySxxExx,
+    PATTERN_FRAGMENTS.rgBracketEpOfTotal,
     PATTERN_FRAGMENTS.sSeasonDashEp,
     PATTERN_FRAGMENTS.titleSeasonEpDash,
+    PATTERN_FRAGMENTS.seriaBefore,
+    PATTERN_FRAGMENTS.seriaAfter,
+    PATTERN_FRAGMENTS.epOnlySeria,
     PATTERN_FRAGMENTS.titleSeasonDashEp,
     PATTERN_FRAGMENTS.titleSpaceSeasonEp,
-    PATTERN_FRAGMENTS.rgBracketEpOfTotal,
     PATTERN_FRAGMENTS.dashEp,
+    PATTERN_FRAGMENTS.titleUnderscoreEp,
     PATTERN_FRAGMENTS.titleSpaceEpTrack,
     PATTERN_FRAGMENTS.aniuaBracketEp,
     PATTERN_FRAGMENTS.specVypusk,
@@ -86,9 +107,12 @@
     PATTERN_FRAGMENTS.titleSpaceEpBracket,
     PATTERN_FRAGMENTS.multiBracketEp,
     PATTERN_FRAGMENTS.eEpisode,
+    PATTERN_FRAGMENTS.titleEpDashTag,
     PATTERN_FRAGMENTS.dashOvaEp,
     PATTERN_FRAGMENTS.dashEpBeforeParen,
-    ...EP_ONLY_PATTERNS,
+    PATTERN_FRAGMENTS.epOnlyParenNxN,
+    PATTERN_FRAGMENTS.epOnlyNxN,
+    PATTERN_FRAGMENTS.leadingAbsEpisode,
   ];
 
   const AUTO_PATTERNS = [
@@ -128,7 +152,7 @@
   const TREE_FILE_CODE_PATTERNS = [
     /\[(?<season>\d{1,2})[xX](?<episode>\d{1,3})\]/,
     /\((?<season>\d{1,2})[xX](?<episode>\d{1,3})\)/,
-    /\[(?<episode>\d{1,3})\s*(?:з|із|из|of)\s*\d{1,3}\]/i,
+    /\[(?<episode>\d{1,3})\s*(?:з|із|из|of)\s*(?:\d{1,3}|[XХ?]{1,3})\]/i,
     /(?:^|[\s._\-–—])[Ss](?<season>\d{1,3})(?:P\d{1,3})?[Ee](?<episode>\d{1,5})(?=\D|$)/,
     /(?:^|[\s._\-–—\[])(?<season>\d{1,2})[xX](?<episode>\d{1,3})(?=\D|$)/,
     /^(?<episode>\d{2,3})\./,
@@ -167,6 +191,10 @@
       label: 'AniUA: Title_[Episode]_...',
       patterns: [PATTERN_FRAGMENTS.aniuaBracketEp],
     },
+    seria: {
+      label: 'Title N серія / Title - Серія N / Title_NN_...',
+      patterns: [PATTERN_FRAGMENTS.seriaBefore, PATTERN_FRAGMENTS.seriaAfter, PATTERN_FRAGMENTS.epOnlySeria, PATTERN_FRAGMENTS.titleUnderscoreEp],
+    },
     'spec-vypusk': {
       label: 'Title - спецвипуск NN ...',
       patterns: [PATTERN_FRAGMENTS.specVypusk],
@@ -190,14 +218,15 @@
     selectedIds: new Set(),
     statuses: new Map(),
     titleGroups: new Map(),
-    authToken: '',
+    groupMeta: new Map(),
+    csrfToken: '',
     loading: false,
-    loaded: false,
+    loadedEndpoint: null,
     running: false,
     abortController: null,
     tmdbDetails: null,
     tmdbResults: [],
-    lastRouteMatched: false,
+    lastRouteEndpoint: null,
     lastRun: null,
     tmdbCache: {},
     selectedTmdbIndex: -1,
@@ -209,14 +238,22 @@
     folderTree: null,
     groupFromTree: new Set(),
     confirmResolver: null,
+    searchSeq: 0,
+    titleDetails: new Map(),
+    seasonCounts: null,
+    seasonCountsKey: '',
   };
 
   const TOAST_DEFAULT_MS = 6000;
 
   const ui = {};
 
+  function getUnlinkedEndpoint() {
+    return UNLINKED_ENDPOINTS[location.pathname.replace(/\/+$/, '')] ?? null;
+  }
+
   function isTargetRoute() {
-    return location.hash.startsWith(TARGET_HASH_PREFIX);
+    return getUnlinkedEndpoint() !== null;
   }
 
   function escapeHtml(value) {
@@ -228,41 +265,12 @@
       .replaceAll("'", '&#039;');
   }
 
-  function normaliseToken(value) {
-    if (typeof value !== 'string') return '';
-    const trimmed = value.trim();
-    const bearerMatch = trimmed.match(/^Bearer\s+(.+)$/i);
-    return (bearerMatch ? bearerMatch[1] : trimmed).trim();
-  }
-
-  function extractTokenFromStorageValue(raw) {
-    if (!raw) return '';
-    let value = String(raw).trim();
-    if (!value) return '';
-
-    if (value.startsWith('{') || value.startsWith('[') || value.startsWith('"')) {
-      try {
-        const parsed = JSON.parse(value);
-        if (typeof parsed === 'string') value = parsed;
-        else if (typeof parsed?.access_token === 'string') value = parsed.access_token;
-        else if (typeof parsed?.token === 'string') value = parsed.token;
-      } catch {
-        /* keep raw string */
-      }
-    }
-
-    return normaliseToken(value);
-  }
-
-  function readAuthToken() {
-    try {
-      const raw = pageWindow.localStorage?.getItem(AUTH_STORAGE_KEY);
-      state.authToken = extractTokenFromStorageValue(raw);
-    } catch {
-      state.authToken = '';
-    }
+  function readCsrfToken() {
+    const prefix = `${CSRF_COOKIE}=`;
+    const cookie = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix));
+    state.csrfToken = cookie ? decodeURIComponent(cookie.slice(prefix.length)) : '';
     updateAuthIndicator();
-    return !!state.authToken;
+    return !!state.csrfToken;
   }
 
   function addStyles() {
@@ -436,6 +444,10 @@
       #${PANEL_ID} .uba-cell-input.uba-has-offset:not(.uba-manual-input) {
         border-color: #ffc107;
         background: #fff8e1;
+      }
+      #${PANEL_ID} .uba-cell-input.uba-out-of-range {
+        border-color: #dc3545;
+        background: #f8d7da;
       }
       #${PANEL_ID} .uba-cell-input:disabled {
         opacity: .65;
@@ -710,6 +722,7 @@
       #${PANEL_ID} .uba-badge-tv { background: #cfe2ff; color: #084298; }
       #${PANEL_ID} .uba-badge-movie { background: #fff3cd; color: #997404; }
       #${PANEL_ID} .uba-badge-muted { background: #e9ecef; color: #495057; }
+      #${PANEL_ID} .uba-badge-best { background: #d1e7dd; color: #0f5132; }
       #${PANEL_ID} .uba-tmdb-card-overview {
         color: #6c757d;
         font-size: 11px;
@@ -751,7 +764,7 @@
     panel.dataset.collapsed = 'false';
     panel.innerHTML = `
       <div class="uba-header">
-        <div class="uba-title">Ukrab Bulk Track Assistant v0.5.8</div>
+        <div class="uba-title">Ukrab Bulk Track Assistant v0.6.0</div>
         <div class="uba-header-actions">
           <button type="button" data-action="collapse" title="Collapse">−</button>
           <button type="button" data-action="close" title="Hide">×</button>
@@ -762,7 +775,7 @@
         <div class="uba-grid">
           <div class="uba-status-row">
             <div class="uba-notice" data-role="route-status"></div>
-            <div class="uba-notice" data-role="auth-status">Reading auth token…</div>
+            <div class="uba-notice" data-role="auth-status">Checking session…</div>
           </div>
         </div>
         <div class="uba-section">
@@ -810,6 +823,7 @@
               <option value="title-season-episode">Title - Season - Episode - ...</option>
               <option value="rg-space">Title [NN з MM]_track / Season Episode _track (РГ style)</option>
               <option value="aniua-bracket">AniUA: Title_[Episode]_...</option>
+              <option value="seria">Title N серія / Title - Серія N / Title_NN_...</option>
               <option value="spec-vypusk">Title - спецвипуск NN ...</option>
               <option value="title-space-ep">Title NN (release) / Title NN [release]</option>
               <option value="ep-only">Episode-only: SxxExx / NxN / (NxN) + folder tree</option>
@@ -818,7 +832,7 @@
             </select>
           </div>
           <div class="uba-col-3">
-            <label for="uba-delay">Delay after success, ms</label>
+            <label for="uba-delay">Delay between requests, ms</label>
             <input id="uba-delay" type="number" value="1000" min="0" step="100">
           </div>
           <div class="uba-col-12">
@@ -872,12 +886,17 @@
               <input id="uba-auto-advance" type="checkbox" checked>
               <label for="uba-auto-advance" style="margin:0">After a group finishes linking, advance to the next group with cached TMDB and pending tracks</label>
             </div>
+            <div class="uba-col-12 uba-inline">
+              <input id="uba-auto-search" type="checkbox" checked>
+              <label for="uba-auto-search" style="margin:0">Search TMDB automatically when opening a group without a cached match</label>
+            </div>
             <div class="uba-col-12">
               <div class="uba-buttons">
                 <button class="uba-btn" type="button" data-action="select-matching">Select all matching</button>
                 <button class="uba-btn" type="button" data-action="deselect-matching">Deselect matching</button>
                 <button class="uba-btn" type="button" data-action="select-none">Select none</button>
                 <button class="uba-btn" type="button" data-action="select-failed">Select failed</button>
+                <button class="uba-btn" type="button" data-action="remap-tmdb" disabled title="Convert per-season numbering of selected out-of-range tracks to TMDB's (sets manual S/E)">Remap to TMDB numbering</button>
                 <button class="uba-btn" type="button" data-action="reset-manual-se" disabled>Reset manual S/E</button>
                 <button class="uba-btn" type="button" data-action="reparse">Reparse all</button>
               </div>
@@ -916,8 +935,8 @@
         <div class="uba-section">
           <div class="uba-grid">
             <div class="uba-col-5">
-              <label for="uba-tmdb-query">TMDB title search</label>
-              <input id="uba-tmdb-query" type="text" placeholder="Uma Musume">
+              <label for="uba-tmdb-query">TMDB title search (or paste a TMDB URL / tv/123)</label>
+              <input id="uba-tmdb-query" type="text" placeholder="Uma Musume · themoviedb.org/tv/12345">
             </div>
             <div class="uba-col-2">
               <label for="uba-search-media-type">API search type</label>
@@ -1040,6 +1059,7 @@
       statusFilter: panel.querySelector('#uba-status-filter'),
       stripBracket: panel.querySelector('#uba-strip-bracket'),
       autoAdvance: panel.querySelector('#uba-auto-advance'),
+      autoSearch: panel.querySelector('#uba-auto-search'),
       renderLimit: panel.querySelector('#uba-render-limit'),
       groupList: panel.querySelector('[data-role="group-list"]'),
       selectionSummary: panel.querySelector('[data-role="selection-summary"]'),
@@ -1076,6 +1096,7 @@
       start: panel.querySelector('[data-action="start"]'),
       abort: panel.querySelector('[data-action="abort"]'),
       resetManualSe: panel.querySelector('[data-action="reset-manual-se"]'),
+      remapTmdb: panel.querySelector('[data-action="remap-tmdb"]'),
     });
 
     loadTmdbCache();
@@ -1106,6 +1127,7 @@
     ui.filter.addEventListener('input', renderTrackTable);
     ui.statusFilter.addEventListener('change', renderTrackTable);
     ui.stripBracket.addEventListener('change', () => {
+      state.tracks = state.tracks.map(withGroupKey);
       rebuildTitleGroups();
       refreshTitleGroupSelect();
       renderGroupList();
@@ -1120,7 +1142,9 @@
       updateLinkStatus('TMDB selection cleared — pick a search result or cached title.');
       renderTmdbSelected(null);
       renderTrackTable();
+      refreshSeasonCounts();
     });
+    ui.tmdbId.addEventListener('change', refreshSeasonCounts);
     ui.tmdbId.addEventListener('input', () => {
       state.tmdbDetails = null;
       state.selectedTmdbIndex = -1;
@@ -1157,16 +1181,13 @@
 
     makePanelDraggable(panel);
     updateRouteStatus();
-    readAuthToken();
-    pageWindow.addEventListener('storage', (event) => {
-      if (event.key === AUTH_STORAGE_KEY) readAuthToken();
-    });
+    readCsrfToken();
     updateMediaTypeControls();
     renderTrackTable();
     updateQueueStatus();
     updateTreeStatus();
 
-    if (isTargetRoute() && !state.loaded && !state.loading) {
+    if (isTargetRoute() && !state.loadedEndpoint && !state.loading) {
       setTimeout(loadUnlinkedTracks, 500);
     }
   }
@@ -1253,6 +1274,7 @@
       'select-none': selectNone,
       'select-failed': selectFailed,
       'reset-manual-se': resetManualOverrides,
+      'remap-tmdb': remapToTmdbNumbering,
       'search-tmdb': searchTmdb,
       start: startBulkLink,
       abort: abortBulkLink,
@@ -1292,18 +1314,26 @@
     return Number.isInteger(episode) ? DEFAULT_SEASON_WHEN_EPISODE_ONLY : null;
   }
 
+  let compiledPatterns = { key: null, regexes: [] };
+
   function compilePatterns() {
+    const sources = getActivePatternSources();
+    const key = sources.join('\n');
+    if (compiledPatterns.key === key) return compiledPatterns.regexes;
     try {
-      return getActivePatternSources().map((pattern) => new RegExp(pattern, 'i'));
+      compiledPatterns = { key, regexes: sources.map((pattern) => new RegExp(pattern, 'i')) };
     } catch (error) {
       throw new Error(`Invalid filename regex: ${error.message}`);
     }
+    return compiledPatterns.regexes;
   }
 
   function normaliseParsedTitle(value) {
     let title = String(value ?? '')
+      .normalize('NFC')
       .trim()
       .replace(/[._]+/g, ' ')
+      .replace(/,(?=[^\s\d])/g, ', ')
       .replace(/\s+/g, ' ')
       .trim();
 
@@ -1312,15 +1342,18 @@
       previous = title;
       title = title
         .replace(/\s*\[[^\]]*\]\s*$/g, '')
-        .replace(/\s+(?:\d+x)?(?:UKR|UA|Ukr|ENG|RUS|DVO|SUB)(?:\s+(?:DVO|SUB|UKR|UA|Ukr|ENG|RUS))*\s*$/i, '')
+        .replace(/\s+(?:\d+x)?(?:UKR|UA|Ukr|ENG|RUS|DVO|MVO|SUB\+?)(?:\s+(?:DVO|MVO|SUB\+?|UKR|UA|Ukr|ENG|RUS))*\s*$/i, '')
         .replace(
           /\s*\([^)]*(?:WEB-?DL(?:Rip)?|WEBDL|BDRip|BluRay|HDTV|DVDRip|TVRip|SATRip|IPTV|x264|x265|HEVC|AAC|DTS|1080p|720p|2160p|480p|2k|4k|Ukr|UKR|UA|DVO|SUB|Multi)[^)]*\)\s*$/i,
           '',
         )
         .replace(
-          /\s+(?:WEB-?DL(?:Rip)?|WEBDL|BDRip|BluRay|HDTV|DVDRip|TVRip|SATRip(?:-AVC)?|IPTVRip(?:-AVC)?|x264|x265|HEVC|AAC|DTS|\d{3,4}p|2k|4k)\b.*$/i,
+          /\s+(?:WEB-?DL(?:Rip)?|WEBDL|BDRip|BDRemux|Remux|Blu-?Ray|HDTV|DVDRip|TVRip|SATRip(?:-AVC)?|IPTVRip(?:-AVC)?|x264|x265|HEVC|AAC|DTS|\d{3,4}p|2k|4k)\b.*$/i,
           '',
         )
+        // Case-sensitive: short tags like MA/NF would otherwise eat real words.
+        .replace(/\s+(?:NORDiC|HYBRID|REPACK|PROPER|REMASTERED|UNCUT|UNRATED|IMAX|AMZN|ATVP|DSNP|HMAX|NF|MA)$/, '')
+        .replace(/\s+(?:Kioto anime|СКО|Юіґень)$/i, '')
         .replace(/\s+by\s+\S+\s*$/i, '')
         .replace(/\s*\([^)]*$/g, '')
         .replace(/\s*[-–—.:|,;]+$/g, '')
@@ -1348,14 +1381,39 @@
     return normaliseParsedTitle(title);
   }
 
-  function getTrackGroupKey(track) {
-    const raw = track.title || UNPARSED_GROUP;
-    if (raw === UNPARSED_GROUP) return UNPARSED_GROUP;
-    return getDisplayTitle(raw) || UNPARSED_GROUP;
+  function foldTitle(value) {
+    return String(value ?? '')
+      .normalize('NFC')
+      .toLocaleLowerCase()
+      .replace(/['ʼ’`´]/g, '')
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim();
   }
 
-  function getTmdbSearchTitle(rawTitle) {
-    return getDisplayTitle(rawTitle);
+  // TV groups by title only (release years differ per season); movies need the year to tell remakes apart.
+  function computeGroupKey(track) {
+    const folded = foldTitle(track.displayTitle);
+    if (!folded) return UNPARSED_GROUP;
+    return !Number.isInteger(track.episode) && track.year ? `${folded} ${track.year}` : folded;
+  }
+
+  function withGroupKey(track) {
+    const next = { ...track, displayTitle: getDisplayTitle(track.title) };
+    next.groupKey = computeGroupKey(next);
+    return next;
+  }
+
+  function getTrackGroupKey(track) {
+    return track.groupKey || UNPARSED_GROUP;
+  }
+
+  function getGroupMeta(groupKey) {
+    return state.groupMeta.get(groupKey) || { label: groupKey, searchTitle: '', year: null, mediaType: '' };
+  }
+
+  function getGroupLabel(groupKey) {
+    if (!groupKey) return 'mixed titles';
+    return groupKey === UNPARSED_GROUP ? 'Unparsed' : getGroupMeta(groupKey).label || groupKey;
   }
 
   function extractBracketTag(filename) {
@@ -1391,8 +1449,10 @@
     saveTmdbCache();
   }
 
-  function getCachedTmdb(titleKey) {
-    return titleKey && titleKey !== UNPARSED_GROUP ? state.tmdbCache[titleKey] : null;
+  function getCachedTmdb(groupKey) {
+    if (!groupKey || groupKey === UNPARSED_GROUP) return null;
+    // Entries saved before v0.6 are keyed by the display title.
+    return state.tmdbCache[groupKey] || state.tmdbCache[getGroupMeta(groupKey).searchTitle] || null;
   }
 
   function isTrackLinked(trackId) {
@@ -1508,10 +1568,7 @@
     const stats = getGroupStats(groupKey);
     const treeMark = state.groupFromTree?.has(groupKey) ? ' · tree' : '';
     const stateMark = `[${formatGroupWorkStateLabel(getGroupWorkState(groupKey))}] `;
-    if (groupKey === UNPARSED_GROUP) {
-      return `${stateMark}Unparsed (${formatGroupBadge(stats)} / ${count.toLocaleString()})`;
-    }
-    return `${stateMark}${groupKey}${treeMark} (${formatGroupBadge(stats)} / ${count.toLocaleString()})`;
+    return `${stateMark}${getGroupLabel(groupKey)}${treeMark} (${formatGroupBadge(stats)} / ${count.toLocaleString()})`;
   }
 
   function ensureGroupListItem(groupKey) {
@@ -1537,7 +1594,7 @@
     const stats = getGroupStats(groupKey);
     const active = ui.titleGroup?.value || '';
     const workState = getGroupWorkState(groupKey);
-    const label = groupKey === UNPARSED_GROUP ? 'Unparsed' : groupKey;
+    const label = getGroupLabel(groupKey);
     const done = stats.pending === 0 && stats.total > 0;
 
     item.dataset.active = String(groupKey === active);
@@ -1612,7 +1669,7 @@
   }
 
   function formatJobGroupLabel(groupKey) {
-    return groupKey === UNPARSED_GROUP ? 'Unparsed' : groupKey || 'mixed titles';
+    return getGroupLabel(groupKey);
   }
 
   function formatJobSettingsSummary(job) {
@@ -1669,16 +1726,16 @@
   }
 
   function applyGroupContext() {
-    const titleKey = ui.titleGroup?.value || '';
-    const searchTitle = titleKey && titleKey !== UNPARSED_GROUP ? titleKey : '';
-    if (searchTitle) {
-      ui.tmdbQuery.value = searchTitle;
+    const groupKey = getSelectedGroupKey();
+    const meta = getGroupMeta(groupKey);
+    if (groupKey) {
+      ui.tmdbQuery.value = meta.searchTitle;
       state.tmdbResults = [];
       state.selectedTmdbIndex = -1;
       renderTmdbResults();
     }
 
-    const cached = getCachedTmdb(searchTitle);
+    const cached = getCachedTmdb(groupKey);
     if (cached) {
       ui.mediaType.value = cached.mediaType;
       ui.tmdbId.value = String(cached.tmdbId);
@@ -1695,14 +1752,19 @@
         mediaType: cached.mediaType,
         title: cached.label,
       });
+      refreshSeasonCounts();
       return;
     }
 
     state.tmdbDetails = null;
     state.selectedTmdbIndex = -1;
     ui.tmdbId.value = '';
+    if (groupKey && meta.mediaType) ui.mediaType.value = meta.mediaType;
+    updateMediaTypeControls();
     renderTmdbSelected(null);
-    updateLinkStatus(searchTitle ? 'Search TMDB and pick a result for this group.' : 'Select a title group to begin.');
+    refreshSeasonCounts();
+    updateLinkStatus(groupKey ? 'Search TMDB and pick a result for this group.' : 'Select a title group to begin.');
+    if (groupKey && meta.searchTitle && ui.autoSearch?.checked) searchTmdb();
   }
 
   function selectCurrentGroupTracks(options = {}) {
@@ -1723,7 +1785,7 @@
       state.selectedIds.add(track.id);
     }
     renderTrackTable();
-    if (!silent) log(`Selected pending tracks in group “${group === UNPARSED_GROUP ? 'Unparsed' : group}”.`);
+    if (!silent) log(`Selected pending tracks in group “${getGroupLabel(group)}”.`);
     return true;
   }
 
@@ -1766,7 +1828,7 @@
     selectGroupPending();
     syncGroupListActiveState();
     renderTrackTable();
-    log(`Advanced to ready group: “${nextKey}”.`);
+    log(`Advanced to ready group: “${getGroupLabel(nextKey)}”.`);
     if (autoStart) setTimeout(() => startBulkLink({ skipConfirm: true }), 0);
     return true;
   }
@@ -1779,13 +1841,14 @@
     };
   }
 
-  function buildLinkJob(selected, mediaType, tmdbId, groupKey = '') {
+  function buildLinkJob(selected, mediaType, tmdbId) {
+    const groupKeys = [...new Set(selected.map(getTrackGroupKey))];
     return {
-      groupKey: groupKey || ui.titleGroup?.value || '',
+      groupKey: ui.titleGroup?.value || (groupKeys.length === 1 ? groupKeys[0] : ''),
       trackIds: selected.map((track) => track.id),
       mediaType,
       tmdbId,
-      parsedTitles: [...new Set(selected.map((track) => getDisplayTitle(track.title)).filter(Boolean))],
+      groupKeys,
       settings: snapshotLinkSettings(),
     };
   }
@@ -1828,7 +1891,6 @@
     state.selectedIds = new Set([...state.selectedIds].filter((id) => existingIds.has(id)));
     state.statuses = new Map([...state.statuses].filter(([id]) => existingIds.has(id)));
     state.manualOverrides = new Map([...state.manualOverrides].filter(([id]) => existingIds.has(id)));
-    state.loaded = true;
 
     rebuildTitleGroups();
     refreshTitleGroupSelect();
@@ -2138,14 +2200,20 @@
     return next;
   }
 
-  function applyTreeEnrichment(tracks = state.tracks) {
-    return tracks.map((track) => enrichTrackFromTree({
-      ...track,
-      titleSource: 'filename',
-      seasonSource: 'filename',
-      episodeSource: 'filename',
-      treeMatch: null,
-    }));
+  const TRACK_BASE_FIELDS = ['id', 'filename', 'displayName', 'type', 'language', 'createdAt', 'uploader', 'apiGroupKey'];
+
+  function buildTrack(source) {
+    const base = Object.fromEntries(TRACK_BASE_FIELDS.map((field) => [field, source[field] ?? null]));
+    return withGroupKey(enrichTrackFromTree({ ...base, ...parseFilename(base.filename) }));
+  }
+
+  function rebuildTracks() {
+    compilePatterns();
+    state.tracks = state.tracks.map(buildTrack);
+    rebuildTitleGroups();
+    refreshTitleGroupSelect();
+    renderGroupList();
+    renderTrackTable();
   }
 
   function countTreeEnriched(tracks = state.tracks) {
@@ -2180,24 +2248,7 @@
   }
 
   function refreshAfterTreeChange() {
-    if (state.tracks.length) {
-      state.tracks = applyTreeEnrichment(
-        state.tracks.map((track) => ({
-          id: track.id,
-          filename: track.filename,
-          displayName: track.displayName,
-          type: track.type,
-          language: track.language,
-          createdAt: track.createdAt,
-          apiGroupKey: track.apiGroupKey,
-          ...parseFilename(track.filename),
-        })),
-      );
-      rebuildTitleGroups();
-      refreshTitleGroupSelect();
-      renderGroupList();
-      renderTrackTable();
-    }
+    if (state.tracks.length) rebuildTracks();
     if (ui.clearTree) ui.clearTree.disabled = !state.folderTree;
     updateTreeStatus();
   }
@@ -2226,46 +2277,63 @@
     }
   }
 
+  // "Show 2 Part 2 - 05" → "Show 2 - 05": cour/part markers are not seasons.
+  const PART_MARKER_RE = /\s*[(\[]?\s*(?:part|частина|cour)\s*\d{1,2}\s*[)\]]?(?=\s*[-–—]\s*\d|\s+\d|_)/gi;
+  const SEASON_HINT_RE = /(?:сезон|season)[\s._-]*0*(\d{1,2})(?!\d)|(?<!\d)(\d{1,2})[\s._-]*(?:сезон|season)/i;
+  const RESOLUTION_NUMBERS = new Set([360, 480, 540, 576, 720, 816, 1080, 1440, 2160]);
+  const AKA_RE = /\s+(?:AKA|a\.k\.a\.?)\s+/i;
+
+  function toInt(value) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isInteger(parsed) ? parsed : null;
+  }
+
+  function splitTitleYear(title) {
+    const match = String(title ?? '').match(/^(?<title>.+?)(?:[\s._]+[(\[]?|[(\[])(?<year>(?:19|20)\d{2})[)\]]?$/);
+    const year = toInt(match?.groups?.year);
+    if (!match || year > new Date().getFullYear() + 1) return { title: String(title ?? ''), year: null };
+    return { title: match.groups.title.trim(), year };
+  }
+
   function parseFilename(filename) {
-    const value = String(filename ?? '');
-    const bracketTag = extractBracketTag(value);
+    const original = String(filename ?? '').normalize('NFC');
+    const bracketTag = extractBracketTag(original);
+    const value = PRESETS[ui.preset?.value] ? original.replace(PART_MARKER_RE, '') : original;
     const stripped = stripBracketPrefix(value);
     const regexes = compilePatterns();
     let match = null;
     let patternIndex = -1;
 
     for (let index = 0; index < regexes.length; index += 1) {
-      const regex = regexes[index];
-      match = value.match(regex) || (stripped !== value ? stripped.match(regex) : null);
-      if (match) {
-        patternIndex = index;
-        break;
-      }
+      const candidate = value.match(regexes[index]) || (stripped !== value ? stripped.match(regexes[index]) : null);
+      if (!candidate || RESOLUTION_NUMBERS.has(toInt(candidate.groups?.episode))) continue;
+      match = candidate;
+      patternIndex = index;
+      break;
     }
 
     if (!match) {
-      return { title: '', season: null, episode: null, parseError: 'No match', patternIndex: -1, bracketTag };
+      return { title: '', year: null, season: null, episode: null, parseError: 'No match', patternIndex: -1, bracketTag };
     }
 
     const groups = match.groups || {};
-    const title = normaliseParsedTitle(groups.title);
-    const season = groups.season == null || groups.season === '' ? null : Number.parseInt(groups.season, 10);
-    const episode = groups.episode == null || groups.episode === '' ? null : Number.parseInt(groups.episode, 10);
-    const hasEpisode = Number.isInteger(episode);
-    const hasSeason = Number.isInteger(season);
+    const named = splitTitleYear(normaliseParsedTitle(groups.title).split(AKA_RE)[0].trim());
+    const title = named.title;
+    const episode = toInt(groups.episode);
+    let season = toInt(groups.season);
+    if (season == null && episode != null) {
+      const hint = value.match(SEASON_HINT_RE);
+      season = toInt(hint?.[1] ?? hint?.[2]);
+    }
     const sourcePatterns = getActivePatternSources();
     const skipDefaultSeason = ABSOLUTE_EPISODE_PATTERNS.has(sourcePatterns[patternIndex]);
-    const resolvedSeason = applyDefaultSeasonWhenEpisodeOnly(
-      hasSeason ? season : null,
-      hasEpisode ? episode : null,
-      { skipDefault: skipDefaultSeason },
-    );
 
     return {
       title,
-      season: resolvedSeason,
-      episode: hasEpisode ? episode : null,
-      parseError: title ? '' : hasSeason || hasEpisode ? 'No title in filename' : 'Missing title group',
+      year: toInt(groups.year) ?? named.year,
+      season: applyDefaultSeasonWhenEpisodeOnly(season, episode, { skipDefault: skipDefaultSeason }),
+      episode,
+      parseError: title ? '' : season != null || episode != null ? 'No title in filename' : 'Missing title group',
       patternIndex,
       bracketTag,
     };
@@ -2316,21 +2384,19 @@
         if (!filename) continue;
         found.set(id, {
           id,
-          filename,
+          filename: filename.normalize('NFC'),
           displayName: String(rawTrack.display_name || filename),
           type: rawTrack.type ?? null,
           language: rawTrack.language ?? null,
           createdAt: rawTrack.created_at ?? null,
+          uploader: rawTrack.uploaded_by?.username ?? null,
           apiGroupKey: group.groupKey,
-          ...parseFilename(filename),
         });
       }
     }
 
-    const tracks = applyTreeEnrichment([...found.values()]);
-
     return {
-      tracks,
+      tracks: [...found.values()].map(buildTrack),
       groupCount: groups.length,
       declaredTrackCount: groups.reduce((total, group) => total + (Number(group.declaredTrackCount) || 0), 0),
     };
@@ -2338,9 +2404,10 @@
 
   async function loadUnlinkedTracks() {
     if (state.loading || state.running) return;
-    if (!isTargetRoute()) {
+    const endpoint = getUnlinkedEndpoint();
+    if (!endpoint) {
       updateRouteStatus();
-      log(`Open ${TARGET_HASH_PREFIX} before loading.`, 'error');
+      log(`Open ${TARGET_PATHS_LABEL} before loading.`, 'error');
       return;
     }
 
@@ -2354,20 +2421,21 @@
       return;
     }
 
-    readAuthToken();
+    readCsrfToken();
     state.loading = true;
     setLoadingUi(true);
     updateDataStatus('Loading the unlinked-track JSON response…');
-    log(`Loading ${UNLINKED_ENDPOINT}.`);
+    log(`Loading ${endpoint}.`);
 
     try {
-      const payload = await apiRequest(UNLINKED_ENDPOINT, {
+      const payload = await apiRequest(endpoint, {
         method: 'GET',
         headers: getAuthHeaders(false),
       });
-      ingestTrackPayload(payload, UNLINKED_ENDPOINT);
+      ingestTrackPayload(payload, endpoint);
+      state.loadedEndpoint = endpoint;
     } catch (error) {
-      if (error.status === 401 || error.status === 403) readAuthToken();
+      if (error.status === 401 || error.status === 403) readCsrfToken();
       updateDataStatus(`API load failed: ${formatError(error)}`, 'error');
       log(`API load failed: ${formatError(error)}`, 'error');
     } finally {
@@ -2378,23 +2446,7 @@
 
   function reparseTracks() {
     try {
-      compilePatterns();
-      state.tracks = applyTreeEnrichment(
-        state.tracks.map((track) => ({
-          id: track.id,
-          filename: track.filename,
-          displayName: track.displayName,
-          type: track.type,
-          language: track.language,
-          createdAt: track.createdAt,
-          apiGroupKey: track.apiGroupKey,
-          ...parseFilename(track.filename),
-        })),
-      );
-      rebuildTitleGroups();
-      refreshTitleGroupSelect();
-      renderGroupList();
-      renderTrackTable();
+      rebuildTracks();
       updateTreeStatus();
       log(
         `Reparsed ${state.tracks.length.toLocaleString()} track(s)` +
@@ -2407,8 +2459,21 @@
     }
   }
 
+  function mostCommon(counts) {
+    let best = null;
+    let bestCount = 0;
+    for (const [value, count] of counts) {
+      if (count > bestCount) {
+        best = value;
+        bestCount = count;
+      }
+    }
+    return best;
+  }
+
   function rebuildTitleGroups() {
     const groups = new Map();
+    const votes = new Map();
     state.groupTrackIds = new Map();
     state.groupFromTree = new Set();
     for (const track of state.tracks) {
@@ -2417,6 +2482,21 @@
       if (!state.groupTrackIds.has(key)) state.groupTrackIds.set(key, []);
       state.groupTrackIds.get(key).push(track.id);
       if (track.titleSource === 'tree' && key !== UNPARSED_GROUP) state.groupFromTree.add(key);
+
+      if (!votes.has(key)) votes.set(key, { titles: new Map(), years: new Map(), episodes: 0 });
+      const vote = votes.get(key);
+      if (track.displayTitle) vote.titles.set(track.displayTitle, (vote.titles.get(track.displayTitle) || 0) + 1);
+      if (track.year) vote.years.set(track.year, (vote.years.get(track.year) || 0) + 1);
+      if (Number.isInteger(track.episode)) vote.episodes += 1;
+    }
+
+    state.groupMeta = new Map();
+    for (const [key, vote] of votes) {
+      const searchTitle = mostCommon(vote.titles) || '';
+      const year = mostCommon(vote.years);
+      const mediaType = vote.episodes * 2 >= groups.get(key) ? 'tv' : 'movie';
+      const label = key === UNPARSED_GROUP ? 'Unparsed' : mediaType === 'movie' && year ? `${searchTitle} (${year})` : searchTitle;
+      state.groupMeta.set(key, { label, searchTitle, year, mediaType });
     }
     state.groupStatsCache.clear();
     state.titleGroups = new Map(
@@ -2427,7 +2507,7 @@
         const pendingB = getGroupStats(titleB).pending;
         if (pendingB !== pendingA) return pendingB - pendingA;
         if (countB !== countA) return countB - countA;
-        return titleA.localeCompare(titleB, undefined, { sensitivity: 'base', numeric: true });
+        return getGroupLabel(titleA).localeCompare(getGroupLabel(titleB), undefined, { sensitivity: 'base', numeric: true });
       }),
     );
     state.groupOrder = [...state.titleGroups.keys()];
@@ -2436,15 +2516,16 @@
   function renderGroupList() {
     if (!ui.groupList) return;
     const scrollTop = ui.groupList.scrollTop;
-    const entries = [...state.titleGroups.entries()].slice(0, 80);
-    const nextKeys = new Set(entries.map(([key]) => key));
+    const nextKeys = new Set(state.titleGroups.keys());
 
     for (const item of [...ui.groupList.querySelectorAll('[data-group-key]')]) {
       if (!nextKeys.has(item.dataset.groupKey)) item.remove();
     }
 
-    for (const [key] of entries) {
-      applyGroupListItemState(ensureGroupListItem(key), key);
+    for (const key of nextKeys) {
+      const item = ensureGroupListItem(key);
+      applyGroupListItemState(item, key);
+      ui.groupList.appendChild(item);
     }
 
     ui.groupList.scrollTop = scrollTop;
@@ -2470,6 +2551,7 @@
 
     for (const key of state.titleGroups.keys()) {
       updateTitleGroupOption(key);
+      ui.titleGroup.appendChild(ensureTitleGroupOption(key));
     }
 
     if ([...ui.titleGroup.options].some((option) => option.value === previous)) {
@@ -2477,7 +2559,7 @@
     }
   }
 
-  function getSelectedGroupTitle() {
+  function getSelectedGroupKey() {
     const value = ui.titleGroup?.value || '';
     return value && value !== UNPARSED_GROUP ? value : '';
   }
@@ -2487,20 +2569,9 @@
     const filter = ui.filter?.value.trim().toLocaleLowerCase() || '';
     return state.tracks.filter((track) => {
       if (!matchesStatusFilter(track)) return false;
-      const groupKey = getTrackGroupKey(track);
-      if (group) {
-        if (group === UNPARSED_GROUP && groupKey !== UNPARSED_GROUP) return false;
-        if (group !== UNPARSED_GROUP && groupKey !== group) return false;
-      }
-      const displayTitle = getDisplayTitle(track.title);
-      const treePath = track.treeMatch?.relPath || '';
-      if (
-        filter &&
-        !`${displayTitle}\n${track.title}\n${track.filename}\n${treePath}`.toLocaleLowerCase().includes(filter)
-      ) {
-        return false;
-      }
-      return true;
+      if (group && getTrackGroupKey(track) !== group) return false;
+      const haystack = [track.displayTitle, track.title, track.filename, track.treeMatch?.relPath, track.uploader];
+      return !filter || haystack.join('\n').toLocaleLowerCase().includes(filter);
     });
   }
 
@@ -2581,7 +2652,7 @@
       if (parsed.value === defaultSeason) setManualOverride(trackId, 'season', undefined);
       else setManualOverride(trackId, 'season', parsed.value);
     }
-    updateResetManualButton();
+    renderTrackTable();
   }
 
   function handleManualEpisodeInput(trackId, rawValue) {
@@ -2598,7 +2669,7 @@
       if (parsed.value === defaultEpisode) setManualOverride(trackId, 'episode', undefined);
       else setManualOverride(trackId, 'episode', parsed.value);
     }
-    updateResetManualButton();
+    renderTrackTable();
   }
 
   function getApiEpisode(track, settings = null) {
@@ -2622,10 +2693,16 @@
     const apiEpisode = getApiEpisode(track);
     const manual = hasManualOverride(track.id, 'episode');
     const offset = getEpisodeOffset();
+    const rangeIssue = getEpisodeRangeIssue(track);
+    const suggestion = rangeIssue ? suggestTmdbNumbering(track) : null;
     let title = manual ? 'Manual override (episode offset ignored)' : `Parsed ${track.episode ?? '—'}`;
     if (!manual && offset !== 0) title += `, offset ${offset}`;
+    if (rangeIssue) title += ` — ${rangeIssue}${suggestion ? `; TMDB numbering: S${suggestion.season}E${suggestion.episode}` : ''}`;
 
-    const className = manual ? 'uba-manual-input' : offset !== 0 && Number.isInteger(track.episode) ? 'uba-has-offset' : '';
+    const className = [
+      manual ? 'uba-manual-input' : offset !== 0 && Number.isInteger(track.episode) ? 'uba-has-offset' : '',
+      rangeIssue ? 'uba-out-of-range' : '',
+    ].join(' ');
     const inputValue = Number.isInteger(apiEpisode) ? apiEpisode : '';
     return `<input type="number" class="uba-cell-input ${className}" data-manual-episode="${escapeHtml(track.id)}" min="0" step="1" value="${inputValue}" placeholder="—" title="${escapeHtml(title)}">`;
   }
@@ -2725,7 +2802,7 @@
       .map((track) => {
         const status = state.statuses.get(track.id);
         const checked = state.selectedIds.has(track.id) ? 'checked' : '';
-        const displayTitle = getDisplayTitle(track.title) || `⚠ ${track.parseError || 'Unparsed'}`;
+        const displayTitle = track.displayTitle || `⚠ ${track.parseError || 'Unparsed'}`;
         const statusLabel = getTrackStatusLabel(track.id);
         const patternHint = Number.isInteger(track.patternIndex) && track.patternIndex >= 0 ? `#${track.patternIndex + 1}` : '';
         const treeHint =
@@ -2743,7 +2820,7 @@
             <td class="uba-number">${formatSeasonCell(track)}</td>
             <td class="uba-number">${formatEpisodeCell(track)}</td>
             <td>${escapeHtml(statusLabel)}</td>
-            <td class="uba-file" title="${escapeHtml(track.filename)}">${escapeHtml(track.filename)}</td>
+            <td class="uba-file" title="${escapeHtml(track.uploader ? `${track.filename}\nUploaded by ${track.uploader}` : track.filename)}">${escapeHtml(track.filename)}</td>
           </tr>
         `;
       })
@@ -2777,14 +2854,21 @@
     if (!ui.selectionSummary) return;
     const selected = state.tracks.filter((track) => state.selectedIds.has(track.id));
     const selectedParseFailures = selected.filter(
-      (track) => !track.title || (ui.mediaType.value === 'tv' && !Number.isInteger(getApiEpisode(track))),
+      (track) => ui.mediaType.value === 'tv' && !Number.isInteger(getApiEpisode(track)),
     );
+    const outOfRange = selected.filter((track) => getEpisodeRangeIssue(track)).length;
+    const remappable = outOfRange ? selected.filter((track) => suggestTmdbNumbering(track)).length : 0;
+    if (ui.remapTmdb) {
+      ui.remapTmdb.disabled = !remappable || state.running;
+      ui.remapTmdb.textContent = remappable ? `Remap ${remappable.toLocaleString()} to TMDB numbering` : 'Remap to TMDB numbering';
+    }
     const displayCount = renderedCount ?? Math.min(matching.length, Number.parseInt(ui.renderLimit.value, 10) || DEFAULT_RENDER_LIMIT);
     ui.selectionSummary.textContent =
       `${state.tracks.length.toLocaleString()} loaded · ${matching.length.toLocaleString()} matching · ` +
       `${displayCount.toLocaleString()} rendered · ${selected.length.toLocaleString()} selected · ` +
-      `${selectedParseFailures.length.toLocaleString()} selected with missing required parsing`;
-    ui.selectionSummary.className = 'uba-notice';
+      `${selectedParseFailures.length.toLocaleString()} selected without an episode` +
+      (outOfRange ? ` · ${outOfRange.toLocaleString()} selected outside TMDB season/episode range` : '');
+    ui.selectionSummary.className = `uba-notice ${selectedParseFailures.length || outOfRange ? 'uba-warning' : ''}`;
   }
 
   function updateMatchingToggle(matching = getMatchingTracks()) {
@@ -2818,21 +2902,21 @@
   function updateRouteStatus() {
     if (!ui.routeStatus) return;
     if (isTargetRoute()) {
-      ui.routeStatus.textContent = 'Target route detected. Track data is loaded from the unlinked-library API.';
+      ui.routeStatus.textContent = `Target route detected. Track data is loaded from ${getUnlinkedEndpoint().split('?')[0]}.`;
       ui.routeStatus.className = 'uba-notice uba-ok';
     } else {
-      ui.routeStatus.textContent = `Inactive on this route. Open ${TARGET_HASH_PREFIX}.`;
+      ui.routeStatus.textContent = `Inactive on this route. Open ${TARGET_PATHS_LABEL}.`;
       ui.routeStatus.className = 'uba-notice uba-warning';
     }
   }
 
   function updateAuthIndicator() {
     if (!ui.authStatus) return;
-    if (state.authToken) {
-      ui.authStatus.textContent = 'Signed in — auth token loaded from localStorage.';
+    if (state.csrfToken) {
+      ui.authStatus.textContent = 'Signed in — session cookie found.';
       ui.authStatus.className = 'uba-notice uba-ok';
     } else {
-      ui.authStatus.textContent = `Not signed in — log in on ukrab.work so ${AUTH_STORAGE_KEY} is available.`;
+      ui.authStatus.textContent = `Not signed in — log in on ukrab.work (no ${CSRF_COOKIE} cookie).`;
       ui.authStatus.className = 'uba-notice uba-error';
     }
   }
@@ -2871,6 +2955,10 @@
       element.disabled = loading;
     });
     ui.abort.disabled = true;
+    if (!loading) {
+      updateResetManualButton();
+      updateSelectionSummary();
+    }
   }
 
   function setRunningUi(running) {
@@ -2879,16 +2967,16 @@
   }
 
   function getAuthHeaders(includeJson = false) {
-    readAuthToken();
+    readCsrfToken();
     const headers = new (pageWindow.Headers || Headers)();
     headers.set('Accept', 'application/json');
     if (includeJson) headers.set('Content-Type', 'application/json');
-    if (state.authToken) headers.set('Authorization', `Bearer ${state.authToken}`);
+    if (state.csrfToken) headers.set('X-CSRF-Token', state.csrfToken);
     return headers;
   }
 
   async function apiRequest(path, options = {}) {
-    readAuthToken();
+    readCsrfToken();
     const fetchImpl = pageWindow.fetch || window.fetch;
     const response = await fetchImpl.call(pageWindow, path, {
       credentials: 'include',
@@ -2946,8 +3034,7 @@
             originalTitle: String(value.original_title || value.original_name || '').trim(),
             year: /^\d{4}/.test(date) ? date.slice(0, 4) : '',
             overview: String(value.overview || value.description || '').trim(),
-            popularity: Number(value.popularity) || 0,
-            posterPath: String(value.poster_path || '').trim(),
+            posterPath: String(value.poster_path || value.poster_url || '').trim(),
             imdbId: String(value.imdb_id || '').trim(),
             releaseDate: date,
             raw: value,
@@ -2966,17 +3053,153 @@
 
   function getTmdbPosterUrl(posterPath) {
     if (!posterPath) return '';
+    if (/^https?:\/\//i.test(posterPath)) return posterPath;
     return `${TMDB_IMAGE_BASE}${posterPath.startsWith('/') ? posterPath : `/${posterPath}`}`;
   }
 
-  function sortTmdbResults(results, preferredType = '') {
-    return [...results].sort((a, b) => {
-      if (preferredType === 'tv' || preferredType === 'movie') {
-        if (a.mediaType === preferredType && b.mediaType !== preferredType) return -1;
-        if (b.mediaType === preferredType && a.mediaType !== preferredType) return 1;
+  const BEST_MATCH_SCORE = 130;
+
+  function scoreTmdbResult(result, { title, year, mediaType }) {
+    const wanted = foldTitle(title);
+    const names = [result.title, result.originalTitle].map(foldTitle).filter(Boolean);
+    let score = 0;
+    if (wanted && names.includes(wanted)) {
+      score += 100;
+    } else if (wanted && names.some((name) => name.startsWith(wanted) || wanted.startsWith(name))) {
+      score += 50;
+    } else if (wanted) {
+      const words = new Set(wanted.split(' '));
+      const overlap = Math.max(0, ...names.map((name) => {
+        const tokens = name.split(' ');
+        return tokens.filter((token) => words.has(token)).length / Math.max(words.size, tokens.length);
+      }));
+      score += Math.round(overlap * 40);
+    }
+    if (mediaType && result.mediaType === mediaType) score += 30;
+    const resultYear = toInt(result.year);
+    if (year && resultYear) score += Math.max(0, 25 - Math.abs(year - resultYear) * 5);
+    return score;
+  }
+
+  function rankTmdbResults(results, context) {
+    return results
+      .map((result, index) => ({ ...result, score: scoreTmdbResult(result, context), apiIndex: index }))
+      .sort((a, b) => b.score - a.score || a.apiIndex - b.apiIndex);
+  }
+
+  function parseTmdbReference(text) {
+    const value = String(text ?? '').trim();
+    const match = value.match(/themoviedb\.org\/(movie|tv)\/(\d+)/i) || value.match(/^(movie|tv)[\s/:#-]+(\d+)$/i);
+    return match ? { mediaType: match[1].toLowerCase(), tmdbId: Number(match[2]) } : null;
+  }
+
+  function fetchTitleDetails(mediaType, tmdbId) {
+    const key = `${mediaType}:${tmdbId}`;
+    if (!state.titleDetails.has(key)) {
+      const query = new URLSearchParams({ media_type: mediaType, tmdb_id: String(tmdbId) });
+      const request = apiRequest(`/api/titles/details?${query}`, { method: 'GET', headers: getAuthHeaders(false) });
+      request.catch(() => state.titleDetails.delete(key));
+      state.titleDetails.set(key, request);
+    }
+    return state.titleDetails.get(key);
+  }
+
+  function candidateFromDetails(details, mediaType, tmdbId) {
+    const entries = Array.isArray(details?.metadata_entries) ? details.metadata_entries : [];
+    const entry = entries.find((item) => item.language === 'en' && item.title) || entries.find((item) => item.title) || {};
+    return {
+      id: tmdbId,
+      mediaType,
+      title: entry.title || `TMDB ${tmdbId}`,
+      originalTitle: '',
+      year: details?.year ? String(details.year) : '',
+      overview: String(entry.overview || '').trim(),
+      posterPath: String(details?.poster_url || '').trim(),
+      imdbId: String(details?.imdb_id || '').trim(),
+      releaseDate: String(details?.release_date || ''),
+      raw: details,
+    };
+  }
+
+  function getSeasonEpisodeCounts(details) {
+    const counts = { tmdb: new Map(), tvdb: new Map() };
+    for (const season of Array.isArray(details?.seasons) ? details.seasons : []) {
+      const map = counts[season.source];
+      const number = toInt(season.season_number);
+      const count = toInt(season.episode_count);
+      if (map && number != null && count != null) map.set(number, Math.max(count, map.get(number) || 0));
+    }
+    if (!counts.tmdb.size) counts.tmdb = counts.tvdb;
+    return counts;
+  }
+
+  async function refreshSeasonCounts() {
+    const tmdbId = toInt(ui.tmdbId?.value);
+    const key = ui.mediaType?.value === 'tv' && tmdbId > 0 ? `tv:${tmdbId}` : '';
+    if (key === state.seasonCountsKey && (state.seasonCounts || !key)) return;
+    state.seasonCountsKey = key;
+    state.seasonCounts = null;
+    if (key) {
+      try {
+        const counts = getSeasonEpisodeCounts(await fetchTitleDetails('tv', tmdbId));
+        if (state.seasonCountsKey !== key) return;
+        state.seasonCounts = counts.tmdb.size ? counts : null;
+      } catch (error) {
+        log(`Could not load TMDB seasons for tv ${tmdbId}: ${formatError(error)}`, 'error');
       }
-      return (b.popularity || 0) - (a.popularity || 0);
-    });
+    }
+    renderTrackTable();
+  }
+
+  function getEpisodeRangeIssue(track, settings = null) {
+    if (!state.seasonCounts) return '';
+    const { tmdb } = state.seasonCounts;
+    const episode = getApiEpisode(track, settings);
+    const season = getApiSeason(track, settings);
+    if (!Number.isInteger(episode) || !Number.isInteger(season)) return '';
+    if (!tmdb.has(season)) return `TMDB has no season ${season}`;
+    const count = tmdb.get(season);
+    return count > 0 && episode > count ? `TMDB season ${season} has ${count} episode(s)` : '';
+  }
+
+  // TMDB often keeps anime as one long season while files follow TVDB's split (S2E02 → TMDB S1E14).
+  function suggestTmdbNumbering(track) {
+    if (!getEpisodeRangeIssue(track)) return null;
+    const { tmdb, tvdb } = state.seasonCounts;
+    const season = getApiSeason(track);
+    const episode = getApiEpisode(track);
+    if (!(season > 0) || !(episode > 0)) return null;
+    let absolute = episode;
+    for (let number = 1; number < season; number += 1) {
+      if (!tvdb.get(number)) return null;
+      absolute += tvdb.get(number);
+    }
+    for (const number of [...tmdb.keys()].filter((value) => value > 0).sort((a, b) => a - b)) {
+      const count = tmdb.get(number);
+      if (absolute <= count) return { season: number, episode: absolute };
+      absolute -= count;
+    }
+    return null;
+  }
+
+  function remapToTmdbNumbering() {
+    if (ui.seasonMode.value !== 'parsed') {
+      showToast('Set “Season value” to “Parsed from filename” before remapping.', { kind: 'warning' });
+      return;
+    }
+    let count = 0;
+    for (const track of state.tracks) {
+      if (!state.selectedIds.has(track.id)) continue;
+      const suggestion = suggestTmdbNumbering(track);
+      if (!suggestion) continue;
+      setManualOverride(track.id, 'season', suggestion.season);
+      setManualOverride(track.id, 'episode', suggestion.episode);
+      count += 1;
+    }
+    renderTrackTable();
+    const message = `Remapped ${count.toLocaleString()} selected track(s) to TMDB season/episode numbering. Undo with “Reset manual S/E”.`;
+    log(message);
+    showToast(message, { kind: 'ok' });
   }
 
   function getFilteredTmdbResults() {
@@ -3046,19 +3269,16 @@
   function deriveTmdbQuery() {
     const explicit = ui.tmdbQuery.value.trim();
     if (explicit) return explicit;
-    const groupTitle = getSelectedGroupTitle();
-    if (groupTitle) return groupTitle;
+    const groupKey = getSelectedGroupKey();
+    if (groupKey) return getGroupMeta(groupKey).searchTitle;
 
-    const selected = state.tracks.filter((track) => state.selectedIds.has(track.id) && track.title);
-    if (selected.length) {
-      const counts = new Map();
-      selected.forEach((track) => {
-        const key = getDisplayTitle(track.title);
-        counts.set(key, (counts.get(key) || 0) + 1);
-      });
-      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    const counts = new Map();
+    for (const track of state.tracks) {
+      if (state.selectedIds.has(track.id) && track.displayTitle) {
+        counts.set(track.displayTitle, (counts.get(track.displayTitle) || 0) + 1);
+      }
     }
-    return ui.filter.value.trim();
+    return mostCommon(counts) || ui.filter.value.trim();
   }
 
   async function searchTmdb() {
@@ -3073,30 +3293,53 @@
     }
 
     ui.tmdbQuery.value = queryText;
-    updateTmdbSearchStatus(`Searching for “${queryText}”…`);
+    const seq = ++state.searchSeq;
     state.tmdbResults = [];
     state.selectedTmdbIndex = -1;
     renderTmdbResults();
     renderTmdbSelected(null);
 
+    // The search API returns nothing when the query carries a year or an "AKA" alternative.
+    const reference = parseTmdbReference(queryText);
+    const { title: cleanQuery, year: queryYear } = splitTitleYear(queryText.split(AKA_RE)[0].trim());
+    const meta = getGroupMeta(getSelectedGroupKey());
+    updateTmdbSearchStatus(reference ? `Looking up ${reference.mediaType} ${reference.tmdbId}…` : `Searching for “${cleanQuery}”…`);
+
     try {
-      const query = new URLSearchParams({ q: queryText, media_type: requestedType });
+      if (reference) {
+        const details = await fetchTitleDetails(reference.mediaType, reference.tmdbId);
+        if (seq !== state.searchSeq) return;
+        state.tmdbResults = [candidateFromDetails(details, reference.mediaType, reference.tmdbId)];
+        chooseTmdbResult(0);
+        updateTmdbSearchStatus(`Loaded ${reference.mediaType} ${reference.tmdbId} by ID.`, 'ok');
+        return;
+      }
+
+      const query = new URLSearchParams({ q: cleanQuery, media_type: requestedType });
       const payload = await apiRequest(`/api/titles/search?${query}`, {
         method: 'GET',
         headers: getAuthHeaders(false),
       });
-      const preferredType = ui.mediaType?.value === 'movie' ? 'movie' : ui.mediaType?.value === 'tv' ? 'tv' : '';
-      state.tmdbResults = sortTmdbResults(collectTmdbCandidates(payload, requestedType), preferredType).slice(0, 50);
-      state.selectedTmdbIndex = -1;
+      if (seq !== state.searchSeq) return;
+      state.tmdbResults = rankTmdbResults(collectTmdbCandidates(payload, requestedType), {
+        title: cleanQuery,
+        year: queryYear ?? meta.year,
+        mediaType: meta.mediaType || ui.mediaType.value,
+      }).slice(0, 50);
       renderTmdbResults();
+      const best = state.tmdbResults[0];
+      const count = state.tmdbResults.length;
       updateTmdbSearchStatus(
-        state.tmdbResults.length
-          ? `Found ${state.tmdbResults.length} result(s). Select the correct title.`
-          : 'No usable movie or TV results were returned.',
-        state.tmdbResults.length ? 'ok' : 'error',
+        !count
+          ? `No results for “${cleanQuery}”. Try the English or original title, or paste a TMDB URL (themoviedb.org/tv/…).`
+          : best.score >= BEST_MATCH_SCORE
+            ? `Found ${count} result(s). Best match: ${best.title} (${best.mediaType}${best.year ? `, ${best.year}` : ''}) — click to confirm.`
+            : `Found ${count} result(s). Select the correct title.`,
+        count ? 'ok' : 'error',
       );
-      log(`TMDB search returned ${state.tmdbResults.length} usable result(s) for “${queryText}”.`);
+      log(`TMDB search returned ${count} usable result(s) for “${cleanQuery}”.`);
     } catch (error) {
+      if (seq !== state.searchSeq) return;
       updateTmdbSearchStatus(`TMDB search failed: ${formatError(error)}`, 'error');
       log(`TMDB search failed: ${formatError(error)}`, 'error');
     }
@@ -3121,6 +3364,7 @@
                 <span class="uba-badge ${badgeClass}">${escapeHtml(result.mediaType)}</span>
                 ${result.year ? `<span class="uba-badge uba-badge-muted">${escapeHtml(result.year)}</span>` : ''}
                 <span class="uba-badge uba-badge-muted">${result.id}</span>
+                ${stateIndex === 0 && result.score >= BEST_MATCH_SCORE ? '<span class="uba-badge uba-badge-best">Best match</span>' : ''}
               </div>
               <div class="uba-tmdb-card-title">${escapeHtml(result.title)}</div>
               ${
@@ -3149,13 +3393,15 @@
       source: 'search',
     };
     updateMediaTypeControls();
-    updateLinkStatus(`Selected: ${result.title} (${result.mediaType}, TMDB ${result.id}${result.year ? `, ${result.year}` : ''}).`, 'ok');
-    const titleKey = getSelectedGroupTitle() || getDisplayTitle(result.title);
-    if (titleKey) cacheTmdbForTitle(titleKey, result.mediaType, result.id, `${result.title} (${result.mediaType} ${result.id})`);
+    const summary = `${result.title} (${result.mediaType}, TMDB ${result.id}${result.year ? `, ${result.year}` : ''})`;
+    updateLinkStatus(`Selected: ${summary}.`, 'ok');
+    const groupKey = getSelectedGroupKey();
+    if (groupKey) cacheTmdbForTitle(groupKey, result.mediaType, result.id, summary);
     renderTmdbSelected(result);
     renderTmdbResults();
     renderTrackTable();
-    refreshGroupWorkStates([titleKey, getSelectedGroupTitle()].filter(Boolean));
+    refreshSeasonCounts();
+    if (groupKey) refreshGroupWorkStates([groupKey]);
     log(`Selected TMDB ${result.mediaType} ${result.id}: ${result.title}.`);
   }
 
@@ -3172,26 +3418,23 @@
     return '';
   }
 
-  function validateJob(job) {
-    const selected = getTracksForJob(job);
-    const settings = { ...job.settings, mediaType: job.mediaType };
+  function validateSelection(selected, mediaType, tmdbId, settings) {
+    if (!selected.length) throw new Error('Select at least one track.');
+    if (!Number.isInteger(tmdbId) || tmdbId <= 0) throw new Error('Pick a TMDB result or enter a valid TMDB ID.');
 
-    if (!selected.length) throw new Error('No tracks remain for this link job.');
-    if (!Number.isInteger(job.tmdbId) || job.tmdbId <= 0) throw new Error('Enter a valid positive TMDB ID.');
-
-    const parsedTitles = [...new Set(selected.map((track) => getDisplayTitle(track.title)).filter(Boolean))];
-    if (parsedTitles.length > 1 && !ui.allowMixed.checked) {
+    const groupKeys = [...new Set(selected.map(getTrackGroupKey))];
+    if (groupKeys.length > 1 && !ui.allowMixed.checked) {
+      const sample = groupKeys.slice(0, 3).map(getGroupLabel).join(', ');
       throw new Error(
-        `Selected tracks contain ${parsedTitles.length} parsed titles. Select one title group or explicitly enable mixed-title linking.`,
+        `Selected tracks span ${groupKeys.length} title groups (${sample}${groupKeys.length > 3 ? ', …' : ''}). Select one group or enable mixed-title linking.`,
       );
     }
 
-    for (const track of selected) {
-      if (!track.title) throw new Error(`Track ${track.id} did not produce a title. Adjust the filename regex.`);
-      if (job.mediaType === 'tv') {
+    if (mediaType === 'tv') {
+      for (const track of selected) {
         const episode = getApiEpisode(track, settings);
         if (!Number.isInteger(episode) || episode < 0) {
-          throw new Error(`Track ${track.id} has invalid API episode number: ${episode ?? 'missing'}.`);
+          throw new Error(`Track ${track.id} has no episode number. Enter it in the E column or adjust the filename pattern.`);
         }
         const season = getApiSeason(track, settings);
         if (season != null && (!Number.isInteger(season) || season < 0)) {
@@ -3200,39 +3443,23 @@
       }
     }
 
-    return { selected, mediaType: job.mediaType, tmdbId: job.tmdbId, parsedTitles, settings, groupKey: job.groupKey };
+    return groupKeys;
+  }
+
+  function validateJob(job) {
+    const selected = getTracksForJob(job);
+    if (!selected.length) throw new Error('No tracks remain for this link job.');
+    const settings = { ...job.settings, mediaType: job.mediaType };
+    validateSelection(selected, job.mediaType, job.tmdbId, settings);
+    return { selected: sortTracksForDisplay(selected), mediaType: job.mediaType, tmdbId: job.tmdbId, settings, groupKey: job.groupKey };
   }
 
   function validateRun() {
     const selected = state.tracks.filter((track) => state.selectedIds.has(track.id));
     const mediaType = ui.mediaType.value;
-    const tmdbId = Number.parseInt(ui.tmdbId.value, 10);
-
-    if (!selected.length) throw new Error('Select at least one track.');
-    if (!Number.isInteger(tmdbId) || tmdbId <= 0) throw new Error('Pick a TMDB result or enter a valid TMDB ID.');
-
-    const parsedTitles = [...new Set(selected.map((track) => getDisplayTitle(track.title)).filter(Boolean))];
-    if (parsedTitles.length > 1 && !ui.allowMixed.checked) {
-      throw new Error(
-        `Selected tracks contain ${parsedTitles.length} parsed titles. Select one title group or explicitly enable mixed-title linking.`,
-      );
-    }
-
-    for (const track of selected) {
-      if (!track.title) throw new Error(`Track ${track.id} did not produce a title. Adjust the filename regex.`);
-      if (mediaType === 'tv') {
-        const episode = getApiEpisode(track);
-        if (!Number.isInteger(episode) || episode < 0) {
-          throw new Error(`Track ${track.id} has invalid API episode number: ${episode ?? 'missing'}.`);
-        }
-        const season = getApiSeason(track);
-        if (season != null && (!Number.isInteger(season) || season < 0)) {
-          throw new Error(`Track ${track.id} has invalid season number: ${season}.`);
-        }
-      }
-    }
-
-    return { selected, mediaType, tmdbId, parsedTitles };
+    const tmdbId = toInt(ui.tmdbId.value);
+    const groupKeys = validateSelection(selected, mediaType, tmdbId, null);
+    return { selected, mediaType, tmdbId, groupKeys };
   }
 
   async function startBulkLink(options = {}) {
@@ -3252,23 +3479,44 @@
       state.linkQueue.push(job);
       clearJobSelection(job);
       updateQueueStatus();
-      log(`Queued link for ${job.trackIds.length} track(s) in “${job.groupKey || 'mixed'}”.`);
+      log(`Queued link for ${job.trackIds.length} track(s) in “${getGroupLabel(job.groupKey)}”.`);
       updateLinkStatus(`Queued ${job.trackIds.length} track(s). Selection cleared — switch to the next group.`, 'ok');
       return;
     }
 
-    if (!options.skipConfirm) {
+    if (run.mediaType === 'tv') await refreshSeasonCounts();
+    const outOfRange = run.selected
+      .map((track) => ({ track, issue: getEpisodeRangeIssue(track) }))
+      .filter((entry) => entry.issue);
+    if (options.skipConfirm && outOfRange.length) {
+      log(`Auto-run paused: ${outOfRange.length} track(s) fall outside the TMDB season/episode range.`, 'error');
+    }
+
+    if (!options.skipConfirm || outOfRange.length) {
       const sample = run.selected[0];
       const samplePayload = buildPayload(sample, run.mediaType, run.tmdbId, job.settings);
-      const titleSummary = run.parsedTitles.slice(0, 5).join(', ') + (run.parsedTitles.length > 5 ? ', …' : '');
+      const labels = run.groupKeys.map(getGroupLabel);
+      const titleSummary = labels.slice(0, 5).join(', ') + (labels.length > 5 ? ', …' : '');
+      const requestCount = groupTracksByPayload(run.selected, run.mediaType, run.tmdbId, job.settings).length;
+      const firstIssue = outOfRange[0];
+      const rangeWarning = firstIssue
+        ? `<dt>Outside TMDB range</dt><dd class="uba-error">${outOfRange.length.toLocaleString()} track(s) — e.g. track ${escapeHtml(firstIssue.track.id)}
+           S${getApiSeason(firstIssue.track) ?? '—'}E${getApiEpisode(firstIssue.track) ?? '—'}: ${escapeHtml(firstIssue.issue)}.
+           ${outOfRange.some((entry) => suggestTmdbNumbering(entry.track))
+             ? 'Cancel and use “Remap to TMDB numbering” to convert per-season numbering.'
+             : 'Check the episode offset or season before linking.'}</dd>`
+        : '';
       const confirmed = await showConfirm({
         title: `Link ${run.selected.length.toLocaleString()} track(s)?`,
         bodyHtml: `
           <dl class="uba-confirm-dl">
-            <dt>Parsed title group(s)</dt>
+            <dt>Title group(s)</dt>
             <dd>${escapeHtml(titleSummary || 'none')}</dd>
             <dt>Target</dt>
             <dd>${escapeHtml(run.mediaType)}, TMDB ${run.tmdbId}</dd>
+            <dt>Requests</dt>
+            <dd>${requestCount.toLocaleString()} (tracks sharing a season/episode are linked together)</dd>
+            ${rangeWarning}
             <dt>First track</dt>
             <dd>${escapeHtml(String(sample.id))} — ${escapeHtml(sample.filename)}</dd>
             <dt>First payload</dt>
@@ -3276,7 +3524,7 @@
           </dl>
           <p class="uba-help">Requests run sequentially. You can queue the next group while this one links.</p>
         `,
-        confirmLabel: 'Link tracks',
+        confirmLabel: outOfRange.length ? 'Link anyway' : 'Link tracks',
       });
       if (!confirmed) return;
     }
@@ -3321,72 +3569,87 @@
           : `TMDB ${run.tmdbId}`;
       cacheTmdbForTitle(run.groupKey, run.mediaType, run.tmdbId, label);
     }
+    const buckets = groupTracksByPayload(run.selected, run.mediaType, run.tmdbId, run.settings);
+    const signal = state.abortController.signal;
     ui.progress.max = run.selected.length;
     ui.progress.value = 0;
     ui.progressText.textContent = `Starting 0/${run.selected.length.toLocaleString()}…`;
-    log(`Linking ${run.selected.length.toLocaleString()} track(s) for “${run.groupKey || 'mixed'}”.`);
+    log(`Linking ${run.selected.length.toLocaleString()} track(s) for “${getGroupLabel(run.groupKey)}” in ${buckets.length.toLocaleString()} request(s).`);
 
     let successCount = 0;
     let failureCount = 0;
     let aborted = false;
+    let processed = 0;
+
+    const refreshRows = (tracks) => {
+      if (tracks.some((track) => !updateTrackRowStatus(track.id))) renderTrackTable();
+    };
 
     try {
-      for (let index = 0; index < run.selected.length; index += 1) {
-        const track = run.selected[index];
-        if (state.abortController.signal.aborted) {
+      for (const { payload, tracks } of buckets) {
+        if (signal.aborted) {
           aborted = true;
           break;
         }
 
-        state.statuses.set(track.id, { state: 'running', message: 'Sending request' });
-        if (!updateTrackRowStatus(track.id)) renderTrackTable();
-        ui.progressText.textContent = `Processing ${index + 1}/${run.selected.length}: track ${track.id}`;
+        for (const track of tracks) state.statuses.set(track.id, { state: 'running', message: 'Sending request' });
+        refreshRows(tracks);
+        ui.progressText.textContent = `Processing ${(processed + tracks.length).toLocaleString()}/${run.selected.length.toLocaleString()}: ${describePayload(payload)}`;
 
+        let results;
         try {
-          const payload = buildPayload(track, run.mediaType, run.tmdbId, run.settings);
-          const response = await apiRequest(`/api/my-tracks/${encodeURIComponent(track.id)}/media-title`, {
-            method: 'PATCH',
-            headers: getAuthHeaders(true),
-            body: JSON.stringify(payload),
-            signal: state.abortController.signal,
-          });
-
-          successCount += 1;
-          state.statuses.set(track.id, {
-            state: 'success',
-            message: 'Linked successfully',
-            payload,
-            response,
-            completedAt: new Date().toISOString(),
-          });
-          state.selectedIds.delete(track.id);
-          log(`✓ Track ${track.id}: linked successfully.`);
-          ui.progress.value = index + 1;
-          if (!updateTrackRowStatus(track.id)) renderTrackTable();
-          notifyGroupProgress(run.groupKey);
-
-          if (index < run.selected.length - 1) {
-            const delayMs = Math.max(0, Number.parseInt(ui.delay.value, 10) || 0);
-            await abortableDelay(delayMs, state.abortController.signal);
-          }
+          results = await sendLinkRequest(tracks, payload, signal);
         } catch (error) {
           if (error.name === 'AbortError') {
+            for (const track of tracks) state.statuses.delete(track.id);
+            refreshRows(tracks);
             aborted = true;
             break;
           }
-          failureCount += 1;
-          state.statuses.set(track.id, {
-            state: 'error',
+          results = new Map(tracks.map((track) => [track.id, {
+            ok: false,
             message: formatError(error),
-            payload: buildPayload(track, run.mediaType, run.tmdbId, run.settings),
             errorStatus: error.status ?? null,
             errorBody: error.body ?? null,
-            completedAt: new Date().toISOString(),
-          });
-          log(`✗ Track ${track.id}: ${formatError(error)}`, 'error');
-          ui.progress.value = index + 1;
-          if (!updateTrackRowStatus(track.id)) renderTrackTable();
-          notifyGroupProgress(run.groupKey);
+          }]));
+        }
+
+        const completedAt = new Date().toISOString();
+        const linkedIds = [];
+        for (const track of tracks) {
+          const result = results.get(track.id);
+          if (result.ok) {
+            successCount += 1;
+            linkedIds.push(track.id);
+            state.statuses.set(track.id, { state: 'success', message: 'Linked successfully', payload, response: result.response, completedAt });
+            state.selectedIds.delete(track.id);
+          } else {
+            failureCount += 1;
+            state.statuses.set(track.id, {
+              state: 'error',
+              message: result.message,
+              payload,
+              errorStatus: result.errorStatus ?? null,
+              errorBody: result.errorBody ?? null,
+              completedAt,
+            });
+            log(`✗ Track ${track.id} (${describePayload(payload)}): ${result.message}`, 'error');
+          }
+        }
+        if (linkedIds.length) log(`✓ ${describePayload(payload)}: linked track(s) ${linkedIds.join(', ')}.`);
+
+        processed += tracks.length;
+        ui.progress.value = processed;
+        refreshRows(tracks);
+        notifyGroupProgress(run.groupKey);
+
+        if (processed < run.selected.length) {
+          try {
+            await abortableDelay(Math.max(0, toInt(ui.delay.value) || 0), signal);
+          } catch {
+            aborted = true;
+            break;
+          }
         }
       }
     } finally {
@@ -3425,7 +3688,7 @@
     if (state.linkQueue.length) {
       const nextJob = state.linkQueue.shift();
       updateQueueStatus();
-      log(`Starting queued link for “${nextJob.groupKey || 'mixed'}”.`);
+      log(`Starting queued link for “${getGroupLabel(nextJob.groupKey)}”.`);
       await runLinkJob(nextJob);
       return;
     }
@@ -3443,6 +3706,38 @@
       season_number: mediaType === 'tv' ? getApiSeason(track, linkSettings) : null,
       episode_number: mediaType === 'tv' ? getApiEpisode(track, linkSettings) : null,
     };
+  }
+
+  function groupTracksByPayload(tracks, mediaType, tmdbId, settings) {
+    const buckets = new Map();
+    for (const track of tracks) {
+      const payload = buildPayload(track, mediaType, tmdbId, settings);
+      const key = `${payload.season_number}|${payload.episode_number}`;
+      if (!buckets.has(key)) buckets.set(key, { payload, tracks: [] });
+      buckets.get(key).tracks.push(track);
+    }
+    return [...buckets.values()];
+  }
+
+  function describePayload(payload) {
+    if (payload.media_type !== 'tv') return `movie ${payload.tmdb_id}`;
+    return `S${payload.season_number ?? '—'}E${payload.episode_number}`;
+  }
+
+  async function sendLinkRequest(tracks, payload, signal) {
+    const response = await apiRequest('/api/my-tracks/bulk/media-title', {
+      method: 'PATCH',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ track_ids: tracks.map((track) => Number(track.id)), ...payload }),
+      signal,
+    });
+    const updated = new Set((response?.updated_track_ids || []).map(String));
+    const failures = Array.isArray(response?.failures) ? response.failures : [];
+    return new Map(tracks.map((track) => {
+      if (updated.has(track.id)) return [track.id, { ok: true, response }];
+      const failure = failures.find((item) => String(item?.track_id ?? item?.id) === track.id) || failures[0];
+      return [track.id, { ok: false, message: failure?.detail || 'Not updated by the server.', errorBody: failure ?? response }];
+    }));
   }
 
   function abortBulkLink() {
@@ -3580,8 +3875,11 @@
         id: track.id,
         filename: track.filename,
         parsed_title: track.title,
-        display_title: getDisplayTitle(track.title),
+        display_title: track.displayTitle,
+        parsed_year: track.year,
         group_key: getTrackGroupKey(track),
+        group_label: getGroupLabel(getTrackGroupKey(track)),
+        uploader: track.uploader,
         parsed_season: track.season,
         parsed_episode: track.episode,
         api_season: getApiSeason(track),
@@ -3606,22 +3904,22 @@
 
   function observeRoute() {
     const onRouteChange = () => {
-      const matched = isTargetRoute();
-      if (matched !== state.lastRouteMatched) {
-        state.lastRouteMatched = matched;
-        if (!document.getElementById(PANEL_ID) && matched) createPanel();
+      const endpoint = getUnlinkedEndpoint();
+      if (endpoint !== state.lastRouteEndpoint) {
+        state.lastRouteEndpoint = endpoint;
+        if (!document.getElementById(PANEL_ID) && endpoint) createPanel();
         updateRouteStatus();
-        if (matched && !state.loaded && !state.loading) setTimeout(loadUnlinkedTracks, 500);
+        if (endpoint && endpoint !== state.loadedEndpoint && !state.loading) setTimeout(loadUnlinkedTracks, 500);
       }
     };
 
-    pageWindow.addEventListener('hashchange', onRouteChange);
+    pageWindow.addEventListener('popstate', onRouteChange);
     setInterval(onRouteChange, 1000);
     onRouteChange();
   }
 
   const initialise = () => {
-    readAuthToken();
+    readCsrfToken();
     observeRoute();
     if (isTargetRoute()) createPanel();
   };
