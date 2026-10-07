@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ukrab.work Bulk Track Assistant
 // @namespace    https://ukrab.work/
-// @version      0.6.0
+// @version      0.6.2
 // @description  Load unlinked tracks, parse filenames, optionally enrich from folder-tree JSON, match TMDB, and link tracks in bulk.
 // @match        https://ukrab.work/*
 // @run-at       document-start
@@ -34,20 +34,21 @@
     sxxExx: String.raw`^(?<title>.+?)[\s._\-–—]+S(?<season>\d{1,3})(?:P\d{1,3})?[\s._-]*(?:EP|E)(?<episode>\d{1,5})(?=\D|$)`,
     sxxexxLower: String.raw`^(?<title>.+?)[\s._\-–—]+s(?<season>\d{1,3})(?:p\d{1,3})?[\s._-]*e(?<episode>\d{1,5})(?=\D|$)`,
     sSeasonDashEp: String.raw`^(?<title>.+?)\s+s(?<season>\d{1,3})\s*[-–—]\s*(?<episode>\d{1,5})(?=\D|$)`,
-    titleSeasonEpDash: String.raw`^(?<title>.+?)\s*[-–—]\s*(?<season>\d{1,3})\s*[-–—]\s*(?<episode>\d{1,5})(?=\D|$)`,
+    // Separator dashes need a space on at least one side so "Ranma 1-2 - 2 - 03" keeps "1-2" (½) in the title.
+    titleSeasonEpDash: String.raw`^(?<title>.+?)(?:\s+[-–—]\s*|\s*[-–—]\s+)(?<season>\d{1,3})(?:\s+[-–—]\s*|\s*[-–—]\s+)(?<episode>\d{1,5})(?=\D|$)`,
     // Title 2 - Серія 01 - Name / Title - Episode 5
     seriaBefore: String.raw`^(?<title>.+?)(?:\s+(?<season>\d{1,2}))?\s*[-–—]\s*(?:серія|серия|episode|ep\.?)\s*(?<episode>\d{1,4})(?=\D|$)`,
     // Title 1 серія СКО / Title - 03 СЕРІЯ(group)
     seriaAfter: String.raw`^(?<title>.+?)[\s._\-–—]+(?<episode>\d{1,4})[\s._-]*(?:серія|серия)(?=[\s._\-()\[\]]|$)`,
     // Title 3 - 01 / Title 4 - 22 (season before dash-episode)
-    titleSeasonDashEp: String.raw`^(?<title>.+?)\s+(?<season>\d{1,3})\s*[-–—]\s*(?<episode>\d{1,5})(?=\s|_track|\[|\(|\.|$)`,
+    titleSeasonDashEp: String.raw`^(?<title>.+?)\s+(?<season>\d{1,3})(?:\s+[-–—]\s*|\s*[-–—]\s+)(?<episode>\d{1,5})(?=\s|_track|\[|\(|\.|$)`,
     titleSpaceSeasonEp: String.raw`^(?<title>.+?)\s+(?<season>\d{1,3})\s+(?<episode>\d{1,5})(?=_track)`,
     titleSpaceEpTrack: String.raw`^(?<title>.+?)[\s_]+(?<episode>\d{1,5})(?=_track)`,
     // Title_01_track2 / Title_01_Group_track2 / Two_Words_01_Group_SUB_track2
     titleUnderscoreEp: String.raw`^(?<title>[^_].*?)_(?<episode>\d{1,3})(?=_|\.[^.]+$|$)`,
     // РГ / Ukrainian: Title [01 з 12] [WEBRip …]_track / Title [01 з ХХ] (total not yet known)
     rgBracketEpOfTotal: String.raw`^(?<title>.+?)\s*\[(?<episode>\d{1,3})\s*(?:з|із|из|of)\s*(?:\d{1,3}|[XХ?]{1,3})\]`,
-    dashEp: String.raw`^(?<title>.+?)\s*[-–—]\s*(?<episode>\d{1,5})(?=\s|_track|\[|\(|\.|$)`,
+    dashEp: String.raw`^(?<title>.+?)(?:\s+[-–—]\s*|\s*[-–—]\s+)(?<episode>\d{1,5})(?=\s|_track|\[|\(|\.|$)`,
     aniuaBracketEp: String.raw`^(?:\[[^\]]+\]_)?(?<title>.+?)_\[(?<episode>\d{1,5})\]_`,
     specVypusk: String.raw`^(?<title>.+?)\s*[-–—]\s*(?:спецвипуск|спец\.?\s*вип\.?|special)\s*(?<episode>\d{1,5})`,
     bracketEpBeforeParen: String.raw`^(?<title>.+?)\s*\[(?<episode>\d{1,5})\]\s*\(`,
@@ -219,6 +220,7 @@
     statuses: new Map(),
     titleGroups: new Map(),
     groupMeta: new Map(),
+    groupSeasonEpisodes: new Map(),
     csrfToken: '',
     loading: false,
     loadedEndpoint: null,
@@ -242,6 +244,8 @@
     titleDetails: new Map(),
     seasonCounts: null,
     seasonCountsKey: '',
+    seasonCountsLoading: false,
+    seasonCountsPromise: null,
   };
 
   const TOAST_DEFAULT_MS = 6000;
@@ -764,7 +768,7 @@
     panel.dataset.collapsed = 'false';
     panel.innerHTML = `
       <div class="uba-header">
-        <div class="uba-title">Ukrab Bulk Track Assistant v0.6.0</div>
+        <div class="uba-title">Ukrab Bulk Track Assistant v0.6.2</div>
         <div class="uba-header-actions">
           <button type="button" data-action="collapse" title="Collapse">−</button>
           <button type="button" data-action="close" title="Hide">×</button>
@@ -1393,8 +1397,13 @@
   // TV groups by title only (release years differ per season); movies need the year to tell remakes apart.
   function computeGroupKey(track) {
     const folded = foldTitle(track.displayTitle);
-    if (!folded) return UNPARSED_GROUP;
+    // Title-less files ("Серія 03", "S01E05") are usually one show per uploader.
+    if (!folded) return track.uploader ? `${UNPARSED_GROUP}:${track.uploader}` : UNPARSED_GROUP;
     return !Number.isInteger(track.episode) && track.year ? `${folded} ${track.year}` : folded;
+  }
+
+  function isUnparsedKey(groupKey) {
+    return groupKey === UNPARSED_GROUP || String(groupKey).startsWith(`${UNPARSED_GROUP}:`);
   }
 
   function withGroupKey(track) {
@@ -1413,7 +1422,12 @@
 
   function getGroupLabel(groupKey) {
     if (!groupKey) return 'mixed titles';
-    return groupKey === UNPARSED_GROUP ? 'Unparsed' : getGroupMeta(groupKey).label || groupKey;
+    return isUnparsedKey(groupKey) ? getUnparsedLabel(groupKey) : getGroupMeta(groupKey).label || groupKey;
+  }
+
+  function getUnparsedLabel(groupKey) {
+    const uploader = groupKey.slice(UNPARSED_GROUP.length + 1);
+    return uploader ? `Unparsed · uploaded by ${uploader}` : 'Unparsed';
   }
 
   function extractBracketTag(filename) {
@@ -1439,7 +1453,7 @@
   }
 
   function cacheTmdbForTitle(titleKey, mediaType, tmdbId, label = '') {
-    if (!titleKey || titleKey === UNPARSED_GROUP) return;
+    if (!titleKey || isUnparsedKey(titleKey)) return;
     state.tmdbCache[titleKey] = {
       mediaType,
       tmdbId,
@@ -1450,7 +1464,7 @@
   }
 
   function getCachedTmdb(groupKey) {
-    if (!groupKey || groupKey === UNPARSED_GROUP) return null;
+    if (!groupKey || isUnparsedKey(groupKey)) return null;
     // Entries saved before v0.6 are keyed by the display title.
     return state.tmdbCache[groupKey] || state.tmdbCache[getGroupMeta(groupKey).searchTitle] || null;
   }
@@ -1728,6 +1742,7 @@
   function applyGroupContext() {
     const groupKey = getSelectedGroupKey();
     const meta = getGroupMeta(groupKey);
+    if (ui.titleGroup?.value) selectCurrentGroupTracks({ silent: true, render: false });
     if (groupKey) {
       ui.tmdbQuery.value = meta.searchTitle;
       state.tmdbResults = [];
@@ -1767,8 +1782,14 @@
     if (groupKey && meta.searchTitle && ui.autoSearch?.checked) searchTmdb();
   }
 
+  function getBusyTrackIds() {
+    const ids = new Set(state.running ? state.lastRun?.requestedTrackIds : []);
+    for (const job of state.linkQueue) job.trackIds.forEach((id) => ids.add(id));
+    return ids;
+  }
+
   function selectCurrentGroupTracks(options = {}) {
-    const { silent = false } = options;
+    const { silent = false, render = true } = options;
     const group = ui.titleGroup?.value || '';
     if (!group) {
       if (!silent) {
@@ -1778,13 +1799,14 @@
       }
       return false;
     }
+    const busy = getBusyTrackIds();
     state.selectedIds.clear();
     for (const track of state.tracks) {
       if (getTrackGroupKey(track) !== group) continue;
-      if (!isTrackPending(track.id)) continue;
+      if (!isTrackPending(track.id) || busy.has(track.id)) continue;
       state.selectedIds.add(track.id);
     }
-    renderTrackTable();
+    if (render) renderTrackTable();
     if (!silent) log(`Selected pending tracks in group “${getGroupLabel(group)}”.`);
     return true;
   }
@@ -1808,11 +1830,13 @@
 
   function findNextReadyGroup(startKey = '') {
     const keys = state.groupOrder;
-    const startIndex = startKey ? keys.indexOf(startKey) + 1 : 0;
-    for (let index = startIndex; index < keys.length; index += 1) {
-      const key = keys[index];
-      if (key === UNPARSED_GROUP) continue;
-      if (getGroupStats(key).pending > 0 && getCachedTmdb(key)) return key;
+    const startIndex = keys.indexOf(startKey) + 1;
+    for (let offset = 0; offset < keys.length; offset += 1) {
+      const key = keys[(startIndex + offset) % keys.length];
+      if (key === startKey || isUnparsedKey(key)) continue;
+      const stats = getGroupStats(key);
+      // Groups whose only pending tracks already failed are left for a manual retry.
+      if (stats.pending - stats.failed > 0 && getCachedTmdb(key)) return key;
     }
     return '';
   }
@@ -2277,8 +2301,9 @@
     }
   }
 
-  // "Show 2 Part 2 - 05" → "Show 2 - 05": cour/part markers are not seasons.
-  const PART_MARKER_RE = /\s*[(\[]?\s*(?:part|частина|cour)\s*\d{1,2}\s*[)\]]?(?=\s*[-–—]\s*\d|\s+\d|_)/gi;
+  // Cour/part markers are cut from the title; without an explicit season, Part N becomes season N
+  // so TMDB range checks and the TVDB remap can catch restarted numbering.
+  const PART_MARKER_RE = /\s*[(\[]?\s*(?:part|частина|cour)\s*(\d{1,2})\s*[)\]]?(?=\s*[-–—]\s*\d|\s+\d|_)/gi;
   const SEASON_HINT_RE = /(?:сезон|season)[\s._-]*0*(\d{1,2})(?!\d)|(?<!\d)(\d{1,2})[\s._-]*(?:сезон|season)/i;
   const RESOLUTION_NUMBERS = new Set([360, 480, 540, 576, 720, 816, 1080, 1440, 2160]);
   const AKA_RE = /\s+(?:AKA|a\.k\.a\.?)\s+/i;
@@ -2298,7 +2323,13 @@
   function parseFilename(filename) {
     const original = String(filename ?? '').normalize('NFC');
     const bracketTag = extractBracketTag(original);
-    const value = PRESETS[ui.preset?.value] ? original.replace(PART_MARKER_RE, '') : original;
+    let part = null;
+    const value = PRESETS[ui.preset?.value]
+      ? original.replace(PART_MARKER_RE, (_, number) => {
+          part = toInt(number);
+          return '';
+        })
+      : original;
     const stripped = stripBracketPrefix(value);
     const regexes = compilePatterns();
     let match = null;
@@ -2313,18 +2344,28 @@
     }
 
     if (!match) {
-      return { title: '', year: null, season: null, episode: null, parseError: 'No match', patternIndex: -1, bracketTag };
+      return { title: '', year: null, season: null, episode: null, part, partSeason: false, parseError: 'No match', patternIndex: -1, bracketTag };
     }
 
     const groups = match.groups || {};
     const named = splitTitleYear(normaliseParsedTitle(groups.title).split(AKA_RE)[0].trim());
-    const title = named.title;
+    let title = named.title;
     const episode = toInt(groups.episode);
     let season = toInt(groups.season);
+    // "Kaiju No. 8 - 05": the number after No./№/# belongs to the title.
+    if (season != null && /(?:^|[\s.])(?:No|№|#|номер)\.?\s*$/i.test(groups.title || '')) {
+      title = `${title} ${season}`;
+      season = null;
+    }
     if (season == null && episode != null) {
       const hint = value.match(SEASON_HINT_RE);
       season = toInt(hint?.[1] ?? hint?.[2]);
     }
+    const partSeason = season == null && episode != null && part > 1;
+    if (partSeason) season = part;
+    // "Машл 2 Претендентський Іспит [01 з 12]": a lone 2-9 inside the title is the season.
+    const titleSeason = season == null && episode != null ? toInt(title.match(/(?:^|\s)([2-9])(?=\s+[^\s\d])/)?.[1]) : null;
+    if (titleSeason != null) season = titleSeason;
     const sourcePatterns = getActivePatternSources();
     const skipDefaultSeason = ABSOLUTE_EPISODE_PATTERNS.has(sourcePatterns[patternIndex]);
 
@@ -2333,6 +2374,9 @@
       year: toInt(groups.year) ?? named.year,
       season: applyDefaultSeasonWhenEpisodeOnly(season, episode, { skipDefault: skipDefaultSeason }),
       episode,
+      part,
+      partSeason,
+      titleSeason: titleSeason != null,
       parseError: title ? '' : season != null || episode != null ? 'No title in filename' : 'Missing title group',
       patternIndex,
       bracketTag,
@@ -2481,7 +2525,7 @@
       groups.set(key, (groups.get(key) || 0) + 1);
       if (!state.groupTrackIds.has(key)) state.groupTrackIds.set(key, []);
       state.groupTrackIds.get(key).push(track.id);
-      if (track.titleSource === 'tree' && key !== UNPARSED_GROUP) state.groupFromTree.add(key);
+      if (track.titleSource === 'tree' && !isUnparsedKey(key)) state.groupFromTree.add(key);
 
       if (!votes.has(key)) votes.set(key, { titles: new Map(), years: new Map(), episodes: 0 });
       const vote = votes.get(key);
@@ -2490,27 +2534,40 @@
       if (Number.isInteger(track.episode)) vote.episodes += 1;
     }
 
+    state.groupSeasonEpisodes = new Map();
+    for (const track of state.tracks) {
+      if (!Number.isInteger(track.episode)) continue;
+      const seasonKey = `${getTrackGroupKey(track)}|${track.season}`;
+      if (!state.groupSeasonEpisodes.has(seasonKey)) state.groupSeasonEpisodes.set(seasonKey, new Set());
+      state.groupSeasonEpisodes.get(seasonKey).add(track.episode);
+    }
+
     state.groupMeta = new Map();
     for (const [key, vote] of votes) {
       const searchTitle = mostCommon(vote.titles) || '';
       const year = mostCommon(vote.years);
       const mediaType = vote.episodes * 2 >= groups.get(key) ? 'tv' : 'movie';
-      const label = key === UNPARSED_GROUP ? 'Unparsed' : mediaType === 'movie' && year ? `${searchTitle} (${year})` : searchTitle;
+      const label = isUnparsedKey(key) ? getUnparsedLabel(key) : mediaType === 'movie' && year ? `${searchTitle} (${year})` : searchTitle;
       state.groupMeta.set(key, { label, searchTitle, year, mediaType });
     }
     state.groupStatsCache.clear();
     state.titleGroups = new Map(
+      // Sorted by size, not pending count, so groups keep their place while they are being linked.
       [...groups.entries()].sort(([titleA, countA], [titleB, countB]) => {
-        if (titleA === UNPARSED_GROUP) return 1;
-        if (titleB === UNPARSED_GROUP) return -1;
-        const pendingA = getGroupStats(titleA).pending;
-        const pendingB = getGroupStats(titleB).pending;
-        if (pendingB !== pendingA) return pendingB - pendingA;
+        const unparsedA = isUnparsedKey(titleA);
+        if (unparsedA !== isUnparsedKey(titleB)) return unparsedA ? 1 : -1;
         if (countB !== countA) return countB - countA;
         return getGroupLabel(titleA).localeCompare(getGroupLabel(titleB), undefined, { sensitivity: 'base', numeric: true });
       }),
     );
     state.groupOrder = [...state.titleGroups.keys()];
+  }
+
+  function syncChildOrder(container, nodes, offset = 0) {
+    nodes.forEach((node, index) => {
+      const current = container.children[index + offset];
+      if (current !== node) container.insertBefore(node, current || null);
+    });
   }
 
   function renderGroupList() {
@@ -2522,11 +2579,11 @@
       if (!nextKeys.has(item.dataset.groupKey)) item.remove();
     }
 
-    for (const key of nextKeys) {
+    syncChildOrder(ui.groupList, [...nextKeys].map((key) => {
       const item = ensureGroupListItem(key);
       applyGroupListItemState(item, key);
-      ui.groupList.appendChild(item);
-    }
+      return item;
+    }));
 
     ui.groupList.scrollTop = scrollTop;
   }
@@ -2549,10 +2606,10 @@
       if (option.value && !nextKeys.has(option.value)) option.remove();
     }
 
-    for (const key of state.titleGroups.keys()) {
+    syncChildOrder(ui.titleGroup, [...state.titleGroups.keys()].map((key) => {
       updateTitleGroupOption(key);
-      ui.titleGroup.appendChild(ensureTitleGroupOption(key));
-    }
+      return ensureTitleGroupOption(key);
+    }), 1);
 
     if ([...ui.titleGroup.options].some((option) => option.value === previous)) {
       ui.titleGroup.value = previous;
@@ -2561,7 +2618,7 @@
 
   function getSelectedGroupKey() {
     const value = ui.titleGroup?.value || '';
-    return value && value !== UNPARSED_GROUP ? value : '';
+    return value && !isUnparsedKey(value) ? value : '';
   }
 
   function getMatchingTracks() {
@@ -2697,7 +2754,10 @@
     const suggestion = rangeIssue ? suggestTmdbNumbering(track) : null;
     let title = manual ? 'Manual override (episode offset ignored)' : `Parsed ${track.episode ?? '—'}`;
     if (!manual && offset !== 0) title += `, offset ${offset}`;
-    if (rangeIssue) title += ` — ${rangeIssue}${suggestion ? `; TMDB numbering: S${suggestion.season}E${suggestion.episode}` : ''}`;
+    if (rangeIssue) {
+      title += ` — ${rangeIssue}`;
+      if (suggestion) title += `; TMDB numbering: S${suggestion.season}E${suggestion.episode}${suggestion.estimated ? ' (estimated from season length)' : ''}`;
+    }
 
     const className = [
       manual ? 'uba-manual-input' : offset !== 0 && Number.isInteger(track.episode) ? 'uba-has-offset' : '',
@@ -2804,7 +2864,10 @@
         const checked = state.selectedIds.has(track.id) ? 'checked' : '';
         const displayTitle = track.displayTitle || `⚠ ${track.parseError || 'Unparsed'}`;
         const statusLabel = getTrackStatusLabel(track.id);
-        const patternHint = Number.isInteger(track.patternIndex) && track.patternIndex >= 0 ? `#${track.patternIndex + 1}` : '';
+        const patternHint = [
+          Number.isInteger(track.patternIndex) && track.patternIndex >= 0 ? `#${track.patternIndex + 1}` : '',
+          track.part > 1 ? `part ${track.part}${track.partSeason ? ' → season' : ''}` : '',
+        ].filter(Boolean).join(' · ');
         const treeHint =
           track.titleSource === 'tree'
             ? `<span class="uba-tree-tag" title="${escapeHtml(track.treeMatch?.relPath || 'from folder tree')}">tree</span>`
@@ -2850,24 +2913,38 @@
     restoreTableFocus(focusSnapshot);
   }
 
+  // Season counts belong to the TMDB title of the open group, so only its tracks can be checked against them.
+  function getRangeCheckScope(selected) {
+    const group = ui.titleGroup?.value || '';
+    return group ? selected.filter((track) => getTrackGroupKey(track) === group) : selected;
+  }
+
   function updateSelectionSummary(matching = getMatchingTracks(), renderedCount = null) {
     if (!ui.selectionSummary) return;
     const selected = state.tracks.filter((track) => state.selectedIds.has(track.id));
     const selectedParseFailures = selected.filter(
       (track) => ui.mediaType.value === 'tv' && !Number.isInteger(getApiEpisode(track)),
     );
-    const outOfRange = selected.filter((track) => getEpisodeRangeIssue(track)).length;
-    const remappable = outOfRange ? selected.filter((track) => suggestTmdbNumbering(track)).length : 0;
+    const scoped = getRangeCheckScope(selected);
+    const outOfRange = scoped.filter((track) => getEpisodeRangeIssue(track)).length;
+    const suggestions = outOfRange ? scoped.map(suggestTmdbNumbering).filter(Boolean) : [];
+    const remappable = suggestions.length;
+    const estimated = suggestions.filter((suggestion) => suggestion.estimated).length;
     if (ui.remapTmdb) {
-      ui.remapTmdb.disabled = !remappable || state.running;
-      ui.remapTmdb.textContent = remappable ? `Remap ${remappable.toLocaleString()} to TMDB numbering` : 'Remap to TMDB numbering';
+      ui.remapTmdb.disabled = !remappable;
+      ui.remapTmdb.textContent = state.seasonCountsLoading
+        ? 'Checking TMDB seasons…'
+        : remappable
+          ? `Remap ${remappable.toLocaleString()} to TMDB numbering${estimated ? ` (${estimated.toLocaleString()} estimated)` : ''}`
+          : 'Remap to TMDB numbering';
     }
     const displayCount = renderedCount ?? Math.min(matching.length, Number.parseInt(ui.renderLimit.value, 10) || DEFAULT_RENDER_LIMIT);
     ui.selectionSummary.textContent =
       `${state.tracks.length.toLocaleString()} loaded · ${matching.length.toLocaleString()} matching · ` +
       `${displayCount.toLocaleString()} rendered · ${selected.length.toLocaleString()} selected · ` +
       `${selectedParseFailures.length.toLocaleString()} selected without an episode` +
-      (outOfRange ? ` · ${outOfRange.toLocaleString()} selected outside TMDB season/episode range` : '');
+      (outOfRange ? ` · ${outOfRange.toLocaleString()} selected outside TMDB season/episode range` : '') +
+      (state.seasonCountsLoading ? ' · checking TMDB seasons…' : '');
     ui.selectionSummary.className = `uba-notice ${selectedParseFailures.length || outOfRange ? 'uba-warning' : ''}`;
   }
 
@@ -2936,7 +3013,7 @@
   function updateTmdbSearchStatus(message, kind = '') {
     if (!ui.tmdbSearchStatus) return;
     ui.tmdbSearchStatus.textContent = message;
-    ui.tmdbSearchStatus.className = `uba-notice ${kind === 'ok' ? 'uba-ok' : kind === 'error' ? 'uba-error' : ''}`;
+    ui.tmdbSearchStatus.className = `uba-notice ${kind ? `uba-${kind}` : ''}`;
   }
 
   function updateMediaTypeControls() {
@@ -3122,33 +3199,48 @@
   }
 
   function getSeasonEpisodeCounts(details) {
-    const counts = { tmdb: new Map(), tvdb: new Map() };
+    const counts = { tmdb: new Map(), tvdb: new Map(), names: new Map() };
     for (const season of Array.isArray(details?.seasons) ? details.seasons : []) {
       const map = counts[season.source];
       const number = toInt(season.season_number);
       const count = toInt(season.episode_count);
       if (map && number != null && count != null) map.set(number, Math.max(count, map.get(number) || 0));
+      if (season.source === 'tmdb' && number != null && season.name) counts.names.set(number, String(season.name));
     }
     if (!counts.tmdb.size) counts.tmdb = counts.tvdb;
     return counts;
   }
 
-  async function refreshSeasonCounts() {
+  function describeTmdbSeason(season) {
+    const name = state.seasonCounts?.names.get(season);
+    const count = state.seasonCounts?.tmdb.get(season);
+    return `S${season}${name && name !== `Season ${season}` ? ` “${name}”` : ''}${count != null ? ` (${count} ep)` : ''}`;
+  }
+
+  function refreshSeasonCounts() {
     const tmdbId = toInt(ui.tmdbId?.value);
     const key = ui.mediaType?.value === 'tv' && tmdbId > 0 ? `tv:${tmdbId}` : '';
-    if (key === state.seasonCountsKey && (state.seasonCounts || !key)) return;
+    if (key === state.seasonCountsKey && state.seasonCountsPromise) return state.seasonCountsPromise;
     state.seasonCountsKey = key;
     state.seasonCounts = null;
-    if (key) {
-      try {
-        const counts = getSeasonEpisodeCounts(await fetchTitleDetails('tv', tmdbId));
+    state.seasonCountsLoading = Boolean(key);
+    state.seasonCountsPromise = (async () => {
+      if (key) {
+        updateSelectionSummary();
+        let counts = null;
+        try {
+          counts = getSeasonEpisodeCounts(await fetchTitleDetails('tv', tmdbId));
+        } catch (error) {
+          log(`Could not load TMDB seasons for tv ${tmdbId}: ${formatError(error)}`, 'error');
+        }
         if (state.seasonCountsKey !== key) return;
-        state.seasonCounts = counts.tmdb.size ? counts : null;
-      } catch (error) {
-        log(`Could not load TMDB seasons for tv ${tmdbId}: ${formatError(error)}`, 'error');
+        state.seasonCounts = counts?.tmdb.size ? counts : null;
+        state.seasonCountsLoading = false;
+        if (!counts) state.seasonCountsPromise = null;
       }
-    }
-    renderTrackTable();
+      renderTrackTable();
+    })();
+    return state.seasonCountsPromise;
   }
 
   function getEpisodeRangeIssue(track, settings = null) {
@@ -3158,6 +3250,7 @@
     const season = getApiSeason(track, settings);
     if (!Number.isInteger(episode) || !Number.isInteger(season)) return '';
     if (!tmdb.has(season)) return `TMDB has no season ${season}`;
+    if (season > 0 && episode < 1) return 'episode 0 is not a regular TMDB episode (usually a special in season 0)';
     const count = tmdb.get(season);
     return count > 0 && episode > count ? `TMDB season ${season} has ${count} episode(s)` : '';
   }
@@ -3170,36 +3263,74 @@
     const episode = getApiEpisode(track);
     if (!(season > 0) || !(episode > 0)) return null;
     let absolute = episode;
+    let tvdbSplit = true;
     for (let number = 1; number < season; number += 1) {
-      if (!tvdb.get(number)) return null;
+      if (!tvdb.get(number)) {
+        tvdbSplit = false;
+        break;
+      }
       absolute += tvdb.get(number);
     }
-    for (const number of [...tmdb.keys()].filter((value) => value > 0).sort((a, b) => a - b)) {
-      const count = tmdb.get(number);
-      if (absolute <= count) return { season: number, episode: absolute };
-      absolute -= count;
+    if (tvdbSplit) {
+      for (const number of [...tmdb.keys()].filter((value) => value > 0).sort((a, b) => a - b)) {
+        const count = tmdb.get(number);
+        if (absolute <= count) return { season: number, episode: absolute };
+        absolute -= count;
+      }
     }
-    return null;
+    return estimateFromSeasonTail(track, season, episode, tmdb);
+  }
+
+  // Without a TVDB split, a complete 1..N set of a missing season is assumed to be the last N episodes
+  // of TMDB's final season (NieR cour 2: TMDB S1 has 24 → files S2E01-12 become S1E13-24).
+  function estimateFromSeasonTail(track, season, episode, tmdb) {
+    if (tmdb.has(season) || track.season !== season || track.episode !== episode) return null;
+    const tvdbCount = state.seasonCounts.tvdb.get(season) || 0;
+    const regular = [...tmdb.keys()].filter((value) => value > 0);
+    if (!regular.length) return null;
+    const last = Math.max(...regular);
+    if (season <= last) return null;
+    const episodes = [...(state.groupSeasonEpisodes.get(`${getTrackGroupKey(track)}|${season}`) || [])].filter((value) => value >= 1);
+    const max = episodes.length ? Math.max(...episodes) : 0;
+    // A full TVDB season means TMDB simply lacks it; the earlier cour must be at least half as long.
+    if (!max || episodes.length !== max || tvdbCount >= max) return null;
+    const offset = tmdb.get(last) - max;
+    return offset * 2 >= max ? { season: last, episode: episode + offset, estimated: true } : null;
   }
 
   function remapToTmdbNumbering() {
-    if (ui.seasonMode.value !== 'parsed') {
-      showToast('Set “Season value” to “Parsed from filename” before remapping.', { kind: 'warning' });
-      return;
+    const selected = state.tracks.filter((track) => state.selectedIds.has(track.id));
+    const plan = getRangeCheckScope(selected).map((track) => ({ track, suggestion: suggestTmdbNumbering(track) }));
+    const fromFixed = ui.seasonMode.value === 'fixed';
+
+    // Per-track S values only apply in "parsed" mode, so the fixed season is carried over as per-track values first.
+    if (fromFixed) {
+      const group = ui.titleGroup?.value || '';
+      for (const track of group ? state.tracks.filter((item) => getTrackGroupKey(item) === group) : selected) {
+        const season = getApiSeason(track);
+        if (Number.isInteger(season) && season !== track.season) setManualOverride(track.id, 'season', season);
+      }
+      ui.seasonMode.value = 'parsed';
+      updateMediaTypeControls();
     }
+
     let count = 0;
-    for (const track of state.tracks) {
-      if (!state.selectedIds.has(track.id)) continue;
-      const suggestion = suggestTmdbNumbering(track);
+    let estimated = 0;
+    for (const { track, suggestion } of plan) {
       if (!suggestion) continue;
       setManualOverride(track.id, 'season', suggestion.season);
       setManualOverride(track.id, 'episode', suggestion.episode);
       count += 1;
+      if (suggestion.estimated) estimated += 1;
     }
     renderTrackTable();
-    const message = `Remapped ${count.toLocaleString()} selected track(s) to TMDB season/episode numbering. Undo with “Reset manual S/E”.`;
+    const message =
+      `Remapped ${count.toLocaleString()} selected track(s) to TMDB season/episode numbering` +
+      (estimated ? ` (${estimated.toLocaleString()} estimated from season length — check the first and last episode)` : '') +
+      (fromFixed ? '; the fixed season was moved into per-track S values and “Season value” switched to “Parsed from filename”' : '') +
+      '. Undo with “Reset manual S/E”.';
     log(message);
-    showToast(message, { kind: 'ok' });
+    showToast(message, { kind: estimated ? 'warning' : 'ok', duration: estimated ? 10000 : TOAST_DEFAULT_MS });
   }
 
   function getFilteredTmdbResults() {
@@ -3281,8 +3412,22 @@
     return mostCommon(counts) || ui.filter.value.trim();
   }
 
+  // The search API only matches near-exact titles, so "Title - Arc Name" or "group-title" find nothing.
+  function buildFallbackQueries(query) {
+    const variants = [];
+    const add = (value) => {
+      const variant = String(value || '').replace(/\s+/g, ' ').replace(/[\s\-–—:]+$/, '').trim();
+      if (variant.length >= 3 && variant !== query && !variants.includes(variant)) variants.push(variant);
+    };
+    add(query.replace(/^[a-z0-9]+-(?=[a-z])/, ''));
+    add(query.split(/\s+[-–—]\s+|:\s+/)[0]);
+    add(query.split(/\s+[-–—]\s+/).slice(1).join(' '));
+    const words = query.split(/\s+/);
+    for (let count = words.length - 1; count >= 1; count -= 1) add(words.slice(0, count).join(' '));
+    return variants.slice(0, 5);
+  }
+
   async function searchTmdb() {
-    selectCurrentGroupTracks({ silent: true });
     const queryText = deriveTmdbQuery();
     const requestedType = ui.searchMediaType.value;
     if (!queryText) {
@@ -3315,29 +3460,47 @@
         return;
       }
 
-      const query = new URLSearchParams({ q: cleanQuery, media_type: requestedType });
-      const payload = await apiRequest(`/api/titles/search?${query}`, {
-        method: 'GET',
-        headers: getAuthHeaders(false),
-      });
+      const fetchCandidates = async (q) => {
+        const payload = await apiRequest(`/api/titles/search?${new URLSearchParams({ q, media_type: requestedType })}`, {
+          method: 'GET',
+          headers: getAuthHeaders(false),
+        });
+        return collectTmdbCandidates(payload, requestedType);
+      };
+      let usedQuery = cleanQuery;
+      let candidates = await fetchCandidates(cleanQuery);
+      for (const variant of candidates.length ? [] : buildFallbackQueries(cleanQuery)) {
+        if (seq !== state.searchSeq) return;
+        updateTmdbSearchStatus(`No results for “${cleanQuery}”; trying “${variant}”…`);
+        candidates = await fetchCandidates(variant);
+        if (candidates.length) {
+          usedQuery = variant;
+          break;
+        }
+      }
       if (seq !== state.searchSeq) return;
-      state.tmdbResults = rankTmdbResults(collectTmdbCandidates(payload, requestedType), {
-        title: cleanQuery,
+      state.tmdbResults = rankTmdbResults(candidates, {
+        title: usedQuery,
         year: queryYear ?? meta.year,
         mediaType: meta.mediaType || ui.mediaType.value,
       }).slice(0, 50);
       renderTmdbResults();
       const best = state.tmdbResults[0];
       const count = state.tmdbResults.length;
+      const topTv = state.tmdbResults.find((result) => result.mediaType === 'tv');
+      if (topTv) fetchTitleDetails('tv', topTv.id);
+      const fallbackNote = usedQuery !== cleanQuery ? `No results for “${cleanQuery}”; showing results for “${usedQuery}”. ` : '';
       updateTmdbSearchStatus(
         !count
-          ? `No results for “${cleanQuery}”. Try the English or original title, or paste a TMDB URL (themoviedb.org/tv/…).`
-          : best.score >= BEST_MATCH_SCORE
-            ? `Found ${count} result(s). Best match: ${best.title} (${best.mediaType}${best.year ? `, ${best.year}` : ''}) — click to confirm.`
-            : `Found ${count} result(s). Select the correct title.`,
-        count ? 'ok' : 'error',
+          ? `No results for “${cleanQuery}” or shorter variants. Try the English or original title, or paste a TMDB URL (themoviedb.org/tv/…).`
+          : fallbackNote
+            ? `${fallbackNote}Found ${count} result(s) — check the title carefully.`
+            : best.score >= BEST_MATCH_SCORE
+              ? `Found ${count} result(s). Best match: ${best.title} (${best.mediaType}${best.year ? `, ${best.year}` : ''}) — click to confirm.`
+              : `Found ${count} result(s). Select the correct title.`,
+        count ? (fallbackNote ? 'warning' : 'ok') : 'error',
       );
-      log(`TMDB search returned ${count} usable result(s) for “${cleanQuery}”.`);
+      log(`TMDB search returned ${count} usable result(s) for “${usedQuery}”${fallbackNote ? ` (fallback from “${cleanQuery}”)` : ''}.`);
     } catch (error) {
       if (seq !== state.searchSeq) return;
       updateTmdbSearchStatus(`TMDB search failed: ${formatError(error)}`, 'error');
@@ -3455,7 +3618,8 @@
   }
 
   function validateRun() {
-    const selected = state.tracks.filter((track) => state.selectedIds.has(track.id));
+    const busy = getBusyTrackIds();
+    const selected = state.tracks.filter((track) => state.selectedIds.has(track.id) && !busy.has(track.id));
     const mediaType = ui.mediaType.value;
     const tmdbId = toInt(ui.tmdbId.value);
     const groupKeys = validateSelection(selected, mediaType, tmdbId, null);
@@ -3475,29 +3639,29 @@
 
     const job = buildLinkJob(run.selected, run.mediaType, run.tmdbId);
 
-    if (state.running) {
-      state.linkQueue.push(job);
-      clearJobSelection(job);
-      updateQueueStatus();
-      log(`Queued link for ${job.trackIds.length} track(s) in “${getGroupLabel(job.groupKey)}”.`);
-      updateLinkStatus(`Queued ${job.trackIds.length} track(s). Selection cleared — switch to the next group.`, 'ok');
-      return;
-    }
-
     if (run.mediaType === 'tv') await refreshSeasonCounts();
     const outOfRange = run.selected
       .map((track) => ({ track, issue: getEpisodeRangeIssue(track) }))
       .filter((entry) => entry.issue);
-    if (options.skipConfirm && outOfRange.length) {
-      log(`Auto-run paused: ${outOfRange.length} track(s) fall outside the TMDB season/episode range.`, 'error');
+    // "Show 2 Part 2 - 05": episodes usually restart per part, so the season alone does not place them.
+    const partInSeason = run.mediaType === 'tv' ? run.selected.filter((track) => track.part > 1 && !track.partSeason) : [];
+    const needsReview = outOfRange.length > 0 || partInSeason.length > 0;
+    if (options.skipConfirm && needsReview) {
+      log(`Auto-run paused: ${outOfRange.length} track(s) outside the TMDB range, ${partInSeason.length} part 2+ track(s) to review.`, 'error');
     }
 
-    if (!options.skipConfirm || outOfRange.length) {
+    // Queueing behind a running job skips the routine confirm, but never the review warnings.
+    if (needsReview || (!options.skipConfirm && !state.running)) {
       const sample = run.selected[0];
       const samplePayload = buildPayload(sample, run.mediaType, run.tmdbId, job.settings);
       const labels = run.groupKeys.map(getGroupLabel);
       const titleSummary = labels.slice(0, 5).join(', ') + (labels.length > 5 ? ', …' : '');
-      const requestCount = groupTracksByPayload(run.selected, run.mediaType, run.tmdbId, job.settings).length;
+      const buckets = groupTracksByPayload(run.selected, run.mediaType, run.tmdbId, job.settings);
+      const requestCount = buckets.length;
+      const targetSeasons = [...new Set(buckets.map((bucket) => bucket.payload.season_number).filter((season) => season != null))].sort((a, b) => a - b);
+      const seasonRow = targetSeasons.length && state.seasonCounts
+        ? `<dt>TMDB season(s)</dt><dd>${escapeHtml(targetSeasons.map(describeTmdbSeason).join(', '))}</dd>`
+        : '';
       const firstIssue = outOfRange[0];
       const rangeWarning = firstIssue
         ? `<dt>Outside TMDB range</dt><dd class="uba-error">${outOfRange.length.toLocaleString()} track(s) — e.g. track ${escapeHtml(firstIssue.track.id)}
@@ -3506,17 +3670,23 @@
              ? 'Cancel and use “Remap to TMDB numbering” to convert per-season numbering.'
              : 'Check the episode offset or season before linking.'}</dd>`
         : '';
+      const partWarning = partInSeason.length
+        ? `<dt>Part 2+ in a season</dt><dd class="uba-warning">${partInSeason.length.toLocaleString()} track(s), e.g. ${escapeHtml(partInSeason[0].filename)}.
+           Episodes of later parts usually continue the season — set an episode offset if TMDB numbers them that way.</dd>`
+        : '';
       const confirmed = await showConfirm({
-        title: `Link ${run.selected.length.toLocaleString()} track(s)?`,
+        title: `${state.running ? 'Queue' : 'Link'} ${run.selected.length.toLocaleString()} track(s)?`,
         bodyHtml: `
           <dl class="uba-confirm-dl">
             <dt>Title group(s)</dt>
             <dd>${escapeHtml(titleSummary || 'none')}</dd>
             <dt>Target</dt>
             <dd>${escapeHtml(run.mediaType)}, TMDB ${run.tmdbId}</dd>
+            ${seasonRow}
             <dt>Requests</dt>
             <dd>${requestCount.toLocaleString()} (tracks sharing a season/episode are linked together)</dd>
             ${rangeWarning}
+            ${partWarning}
             <dt>First track</dt>
             <dd>${escapeHtml(String(sample.id))} — ${escapeHtml(sample.filename)}</dd>
             <dt>First payload</dt>
@@ -3524,9 +3694,18 @@
           </dl>
           <p class="uba-help">Requests run sequentially. You can queue the next group while this one links.</p>
         `,
-        confirmLabel: outOfRange.length ? 'Link anyway' : 'Link tracks',
+        confirmLabel: `${state.running ? 'Queue' : 'Link'}${needsReview ? ' anyway' : ' tracks'}`,
       });
       if (!confirmed) return;
+    }
+
+    if (state.running) {
+      state.linkQueue.push(job);
+      clearJobSelection(job);
+      updateQueueStatus();
+      log(`Queued link for ${job.trackIds.length} track(s) in “${getGroupLabel(job.groupKey)}”.`);
+      updateLinkStatus(`Queued ${job.trackIds.length} track(s). Selection cleared — switch to the next group.`, 'ok');
+      return;
     }
 
     clearJobSelection(job);
@@ -3562,7 +3741,7 @@
       run.groupKey,
       ...state.linkQueue.map((job) => job.groupKey),
     ].filter(Boolean));
-    if (run.groupKey && run.groupKey !== UNPARSED_GROUP && !getCachedTmdb(run.groupKey)) {
+    if (run.groupKey && !isUnparsedKey(run.groupKey) && !getCachedTmdb(run.groupKey)) {
       const label =
         state.tmdbDetails?.tmdbId === run.tmdbId
           ? findLikelyTitle(state.tmdbDetails.details) || `TMDB ${run.tmdbId}`
@@ -3581,8 +3760,10 @@
     let aborted = false;
     let processed = 0;
 
+    // Patch visible rows only: a full re-render per request would reset the table while the next group is prepared.
     const refreshRows = (tracks) => {
-      if (tracks.some((track) => !updateTrackRowStatus(track.id))) renderTrackTable();
+      tracks.forEach((track) => updateTrackRowStatus(track.id));
+      updateSelectionSummary();
     };
 
     try {
@@ -3693,7 +3874,7 @@
       return;
     }
 
-    if (successCount > 0 && ui.autoAdvance?.checked) {
+    if (successCount > 0 && ui.autoAdvance?.checked && !state.confirmResolver) {
       advanceToNextReadyGroup(job.groupKey, true);
     }
   }
