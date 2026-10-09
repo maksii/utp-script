@@ -92,6 +92,7 @@
       AniDB: { width: "30px", height: "30px" },
       Prowlarr: { width: "30px", height: "30px" },
       Jackett: { width: "30px", height: "30px" },
+      UkrAB: { width: "30px", height: "30px" },
     },
     API_KEYS: {
       // Store API keys for sites by type
